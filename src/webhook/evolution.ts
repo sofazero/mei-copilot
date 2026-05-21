@@ -34,12 +34,27 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
     }
   });
 
+  const remoteJid = payload.data?.key?.remoteJid;
+
   if (payload.data?.key?.fromMe) {
     logAuditEvent({
       type: "webhook_ignored",
       messageId: payload.data?.key?.id,
       payload: {
         reason: "from_me"
+      }
+    });
+
+    return { ignored: true };
+  }
+
+  if (isGroupJid(remoteJid)) {
+    logAuditEvent({
+      type: "webhook_ignored",
+      messageId: payload.data?.key?.id,
+      payload: {
+        reason: "group_message",
+        remoteJid
       }
     });
 
@@ -61,7 +76,7 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
     return { ignored: true };
   }
 
-  const phone = normalizeRemoteJid(payload.data?.key?.remoteJid);
+  const phone = normalizeRemoteJid(remoteJid);
   const text = getMessageText(payload);
   if (!phone || !text) {
     logAuditEvent({
@@ -168,6 +183,10 @@ async function findTenantByInstance(instance: string): Promise<Tenant | null> {
 
 function normalizeRemoteJid(remoteJid?: string) {
   return remoteJid?.replace("@s.whatsapp.net", "");
+}
+
+function isGroupJid(remoteJid?: string) {
+  return remoteJid?.endsWith("@g.us") ?? false;
 }
 
 function getMessageText(payload: EvolutionWebhookPayload) {
