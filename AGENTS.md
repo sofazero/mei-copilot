@@ -115,9 +115,17 @@ O tom deve ser:
 - sem prometer milagre;
 - com linguagem de WhatsApp profissional.
 
+Todas as mensagens que o MEI ou contador enxergam devem usar portugues brasileiro natural, com acentos e pontuacao normal.
+
+Regra:
+
+- texto interno, chaves e normalizacao podem ficar sem acento;
+- resposta final, perguntas, dores do segmento, alertas e mensagens de WhatsApp precisam ter acento;
+- evitar cara de prompt tecnico ou traducao incompleta.
+
 Exemplo:
 
-"Anotei aqui: R$150 de entrada hoje. Com isso, voce chegou a R$1.240 no mes. Ainda faltam R$2.760 para sua meta. Quer que eu calcule quantos atendimentos precisa fazer ate sexta?"
+"Anotei aqui: R$150 de entrada hoje. Com isso, você chegou a R$1.240 no mês. Ainda faltam R$2.760 para sua meta. Quer que eu calcule quantos atendimentos precisa fazer até sexta?"
 
 ## Respostas financeiras e fiscais
 

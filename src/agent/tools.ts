@@ -1,8 +1,11 @@
+import { logAuditEvent } from "./audit";
 import type { MarketResearch, Tenant, ToolCall, ToolResult, User } from "./types";
 
 type ToolContext = {
   tenant: Tenant;
   phone: string;
+  runId?: string;
+  stepNumber?: number;
 };
 
 const placeholderUsers = new Map<string, User>();
@@ -12,7 +15,31 @@ function userKey(tenantId: string, phone: string) {
 }
 
 export async function executeTool(call: ToolCall, context: ToolContext): Promise<ToolResult> {
+  logAuditEvent({
+    type: "tool_called",
+    tenant: context.tenant,
+    phone: context.phone,
+    runId: context.runId,
+    stepNumber: context.stepNumber,
+    toolName: call.name,
+    payload: {
+      input: call.input
+    }
+  });
+
   const result = await runTool(call, context);
+
+  logAuditEvent({
+    type: "tool_completed",
+    tenant: context.tenant,
+    phone: context.phone,
+    runId: context.runId,
+    stepNumber: context.stepNumber,
+    toolName: call.name,
+    payload: {
+      result
+    }
+  });
 
   return {
     toolCallId: call.id,
@@ -23,6 +50,12 @@ export async function executeTool(call: ToolCall, context: ToolContext): Promise
 
 async function runTool(call: ToolCall, context: ToolContext): Promise<unknown> {
   switch (call.name) {
+    case "get_segment_pain":
+      return getSegmentPain(call.input);
+
+    case "get_diagnostic_question":
+      return getDiagnosticQuestion(call.input);
+
     case "get_user":
       return getUser(context.tenant.id, context.phone);
 
@@ -68,6 +101,71 @@ async function runTool(call: ToolCall, context: ToolContext): Promise<unknown> {
     default:
       throw new Error(`Unknown tool: ${call.name}`);
   }
+}
+
+async function getSegmentPain(input: Record<string, unknown>) {
+  const activity = stringValue(input.activity);
+  const segment = normalizeText(activity ?? "");
+
+  if (segment.includes("kit festa") || segment.includes("festa")) {
+    return {
+      activity,
+      pain: "Nesse tipo de rotina, uma dor comum é controlar reserva, entrega, pagamento final e reposição de itens sem misturar tudo."
+    };
+  }
+
+  if (segment.includes("manicure") || segment.includes("cabelo") || segment.includes("beleza")) {
+    return {
+      activity,
+      pain: "Nessa rotina, muita gente recebe em Pix, dinheiro e cartão, mas no fim mistura atendimento com conta pessoal."
+    };
+  }
+
+  if (segment.includes("ar condicionado") || segment.includes("eletrica") || segment.includes("manutencao")) {
+    return {
+      activity,
+      pain: "Nesse tipo de serviço, o que costuma pesar é misturar peça, deslocamento e mão de obra em um valor fechado."
+    };
+  }
+
+  if (segment.includes("marmita") || segment.includes("comida") || segment.includes("bolo") || segment.includes("doce")) {
+    return {
+      activity,
+      pain: "Nessa área, uma dor comum é vender bastante, mas não enxergar direito quanto ficou depois dos ingredientes, embalagens e entregas."
+    };
+  }
+
+  return {
+    activity,
+    pain: "Uma dor comum de quem empreende sozinho é ver dinheiro entrando e saindo, mas não ter clareza se o mês realmente sobrou."
+  };
+}
+
+async function getDiagnosticQuestion(input: Record<string, unknown>) {
+  const activity = stringValue(input.activity);
+  const segment = normalizeText(activity ?? "");
+
+  if (segment.includes("kit festa") || segment.includes("festa")) {
+    return {
+      question: "Hoje você controla suas reservas e pagamentos por onde: caderno, planilha, WhatsApp ou algum aplicativo?"
+    };
+  }
+
+  if (segment.includes("manicure") || segment.includes("cabelo") || segment.includes("beleza")) {
+    return {
+      question: "Hoje você costuma separar o dinheiro dos atendimentos das suas contas pessoais ou fica tudo junto?"
+    };
+  }
+
+  if (segment.includes("ar condicionado") || segment.includes("eletrica") || segment.includes("manutencao")) {
+    return {
+      question: "Quando você faz um orçamento hoje, costuma separar peça, deslocamento e mão de obra ou passa um valor fechado para o cliente?"
+    };
+  }
+
+  return {
+    question: "Hoje você controla o que entra e o que sai do negócio por onde: caderno, planilha, aplicativo ou mais pela memória mesmo?"
+  };
 }
 
 async function getUser(tenantId: string, phone: string) {
@@ -168,7 +266,7 @@ async function getDiagnostic(tenantId: string, phone: string) {
     tenantId,
     phone,
     status: "insufficient_data",
-    message: "Ainda nao ha lancamentos suficientes para diagnostico confiavel."
+    message: "Ainda não há lançamentos suficientes para diagnóstico confiável."
   };
 }
 
@@ -217,7 +315,7 @@ async function scheduleAlert(tenantId: string, phone: string, input: Record<stri
 }
 
 async function researchMarket(input: Record<string, unknown>): Promise<MarketResearch> {
-  const activity = stringValue(input.activity) ?? "atividade nao informada";
+  const activity = stringValue(input.activity) ?? "atividade não informada";
   const city = stringValue(input.city);
 
   return {
@@ -227,7 +325,7 @@ async function researchMarket(input: Record<string, unknown>): Promise<MarketRes
     likelyCnae: undefined,
     priceRange: undefined,
     sectorPains: [],
-    risks: ["Pesquisa externa ainda nao conectada neste esqueleto."],
+    risks: ["Pesquisa externa ainda não conectada neste esqueleto."],
     recommendation: "Conectar esta tool a um provedor de busca e retornar JSON estruturado com fontes.",
     sources: []
   };
@@ -239,7 +337,7 @@ async function notifyAccountant(tenantId: string, phone: string, input: Record<s
     phone,
     notificationId: crypto.randomUUID(),
     status: "created",
-    responsibleName: stringValue(input.responsibleName) ?? "responsavel do escritorio",
+    responsibleName: stringValue(input.responsibleName) ?? "responsável do escritório",
     reason: input.reason,
     severity: input.severity ?? "medium",
     summary: input.summary,
@@ -259,4 +357,12 @@ function numberValue(value: unknown) {
 
 function enumValue<T extends string>(value: unknown, allowed: T[]): T | undefined {
   return typeof value === "string" && allowed.includes(value as T) ? (value as T) : undefined;
+}
+
+function normalizeText(text: string) {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }

@@ -18,12 +18,17 @@ export type User = {
   checkinTime?: string;
 };
 
-export type AgentMessage = {
-  role: "user" | "assistant" | "tool";
-  content: string;
-  toolName?: string;
-  toolCallId?: string;
-};
+export type ConversationState =
+  | "new"
+  | "permission_sent"
+  | "permission_accepted"
+  | "segment_pain_sent"
+  | "diagnostic_question_sent"
+  | "onboarding"
+  | "daily_checkin"
+  | "entry_capture"
+  | "human_review_needed"
+  | "opt_out";
 
 export type ToolCall = {
   id: string;
@@ -38,6 +43,8 @@ export type ToolResult = {
 };
 
 export type ToolName =
+  | "get_segment_pain"
+  | "get_diagnostic_question"
   | "get_user"
   | "create_user"
   | "update_user"
@@ -53,17 +60,61 @@ export type ToolName =
   | "research_market"
   | "notify_accountant";
 
-export type AgentTurnInput = {
+export type JuliaProfile = {
   tenant: Tenant;
   phone: string;
+  name?: string;
+  activity?: string;
+  city?: string;
+};
+
+export type JuliaTurnInput = JuliaProfile & {
   text: string;
   messageId?: string;
 };
 
-export type AgentTurnOutput = {
+export type JuliaTurnOutput = {
   answer: string;
+  state: ConversationState;
   stepsUsed: number;
-  toolResults: ToolResult[];
+  objective: string;
+  runId: string;
+};
+
+export type OutboundMessage = {
+  text: string;
+  typingDelayMs: number;
+};
+
+export type DeliveryPlan = {
+  messages: OutboundMessage[];
+  totalTypingDelayMs: number;
+};
+
+export type AuditEventType =
+  | "webhook_received"
+  | "webhook_ignored"
+  | "message_buffered"
+  | "message_ready"
+  | "agent_run_started"
+  | "agent_step"
+  | "tool_called"
+  | "tool_completed"
+  | "agent_run_completed"
+  | "delivery_planned"
+  | "message_sent";
+
+export type AuditEvent = {
+  id: string;
+  type: AuditEventType;
+  tenantId?: string;
+  phone?: string;
+  messageId?: string;
+  runId?: string;
+  stepNumber?: number;
+  toolName?: ToolName;
+  payload: Record<string, unknown>;
+  createdAt: string;
 };
 
 export type MarketResearch = {

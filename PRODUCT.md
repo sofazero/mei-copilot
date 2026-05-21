@@ -2,7 +2,7 @@
 
 ## Frase do produto
 
-MEI Copilot e uma operacao white label para escritorios contabeis acompanharem clientes MEI pelo WhatsApp com IA, lembretes, registros financeiros e alertas de risco.
+MEI Copilot e uma operacao white label para escritorios contabeis acompanharem clientes MEI pelo WhatsApp com a Julia, uma agente operacional com IA, check-in diario, registros financeiros, lembretes e alertas de risco.
 
 ## Quem compra
 
@@ -62,6 +62,7 @@ O aprendizado que queremos validar primeiro e se o numero com a identidade do es
 
 ### Inclui
 
+- Julia como runtime proprio em TypeScript;
 - onboarding para quem ja tem negocio;
 - onboarding para quem quer abrir;
 - classificacao de mensagens;
@@ -73,6 +74,9 @@ O aprendizado que queremos validar primeiro e se o numero com a identidade do es
 - lembrete de DAS;
 - notificacao ao contador quando houver risco;
 - logs de execucao do agente;
+- buffer de mensagens;
+- split de respostas;
+- typing delay;
 - envio humanizado no WhatsApp.
 
 ### Nao inclui no primeiro ciclo
@@ -84,6 +88,7 @@ O aprendizado que queremos validar primeiro e se o numero com a identidade do es
 - cobranca automatica;
 - multiplos perfis por empresa;
 - automacao fiscal critica sem contador.
+- HookCloud/API oficial da Meta no MVP.
 
 ## Onboarding
 
@@ -130,6 +135,24 @@ Planos iniciais para validar:
 - Office: R$799/mes, ate 200 MEIs.
 
 O contador decide se repassa, embute no honorario ou oferece como diferencial.
+
+## Decisao de canal no MVP
+
+O acompanhamento diario e parte essencial do produto.
+
+Por custo, HookCloud/API oficial da Meta nao sera a rota inicial do MVP.
+
+Rota inicial:
+
+- WhatsApp Business comum;
+- Evolution API/session;
+- numero proprio controlado;
+- pilotos pequenos;
+- consentimento do MEI;
+- mensagens diarias curtas e variadas;
+- monitoramento de bloqueio, queda e opt-out.
+
+Essa rota exige operacao cuidadosa. Ela nao deve virar disparo em massa.
 
 ## Criterios de sucesso do piloto
 

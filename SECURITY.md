@@ -33,12 +33,17 @@ Sao consideradas criticas:
 Registrar:
 
 - webhook recebido;
+- webhook ignorado e motivo;
+- mensagem recebida do MEI;
+- texto consolidado pelo buffer;
 - tenant resolvido;
 - usuario resolvido;
 - inicio e fim de agent run;
 - cada step do agente;
 - cada tool chamada;
 - input e output das tools, com mascaramento quando necessario;
+- resposta final da Julia;
+- split e plano de delivery;
 - erros;
 - retries;
 - mensagens enviadas;

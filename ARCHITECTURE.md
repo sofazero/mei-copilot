@@ -2,126 +2,183 @@
 
 ## Visao geral
 
-A plataforma e multi-tenant. Cada escritorio contabil e um tenant com identidade, numero de WhatsApp, configuracoes, clientes, logs e alertas proprios.
+A Julia sera um runtime agentico proprio do MEI Copilot.
 
-Fluxo principal:
+Ela roda no backend do produto, nao dentro do OpenClaw.
+
+Stack inicial:
+
+- TypeScript/Node;
+- Railway para deploy;
+- Supabase/PostgreSQL para memoria, logs e dados operacionais;
+- Evolution API para WhatsApp no MVP;
+- job scheduler para check-ins e lembretes;
+- LLM com tools controladas.
+
+## Fluxo principal
 
 ```text
 MEI
-  -> WhatsApp white label do escritorio
+  -> WhatsApp
   -> Evolution API
-  -> Webhook backend
-  -> Tenant resolver
-  -> Agent runtime
+  -> Webhook Railway
+  -> Idempotencia
+  -> Buffer curto de mensagens
+  -> Tenant/user resolver
+  -> Conversation state
+  -> Julia agent runtime
   -> Tools
-  -> Banco / Redis / Jobs
-  -> Resposta humanizada
+  -> Supabase
+  -> Resposta final
+  -> Split em blocos
+  -> Typing delay
+  -> Evolution API
   -> WhatsApp
 ```
 
 ## Componentes
 
-### WhatsApp
+### Webhook
 
-Canal principal do MEI.
-
-Responsabilidades:
-
-- receber mensagens;
-- enviar respostas;
-- mostrar digitando quando possivel;
-- operar por instancia dedicada por tenant;
-- preservar identidade do escritorio.
-
-## Regra de MVP para WhatsApp white label
-
-No MVP, cada contador piloto pode ter um numero dedicado quando isso for importante para validar valor, mas a operacao sera manual.
-
-Fluxo:
-
-1. dono da plataforma ativa o numero;
-2. cria a conta WhatsApp ou WhatsApp Business;
-3. cria instancia na Evolution API;
-4. conecta via QR code ou pairing code;
-5. vincula a instancia ao tenant;
-6. monitora status de conexao;
-7. reconecta manualmente se cair.
-
-Fora do MVP:
-
-- compra automatica de numeros;
-- rotacao automatica;
-- reconexao self-service;
-- migracao para API oficial da Meta;
-- alta disponibilidade por tenant.
-
-### Evolution API
-
-Camada de integracao com WhatsApp.
+Recebe eventos da Evolution API.
 
 Responsabilidades:
 
-- webhooks por instancia;
-- envio de mensagens;
-- status de conexao;
-- separacao operacional por escritorio.
+- ignorar mensagens enviadas pelo proprio numero;
+- normalizar telefone;
+- extrair texto;
+- resolver instancia/tenant;
+- aplicar idempotencia por `message_id`;
+- enviar texto para o buffer.
 
-### Backend
+### Buffer de mensagens
+
+Camada obrigatoria para WhatsApp.
 
 Responsabilidades:
 
-- receber webhook;
-- resolver tenant;
-- carregar usuario;
-- chamar agente;
-- executar tools;
-- persistir logs;
-- agendar jobs;
-- enviar resposta.
+- aguardar poucos segundos antes de responder;
+- juntar mensagens seguidas do mesmo usuario;
+- evitar resposta para cada fragmento;
+- reduzir sensacao de robo.
 
-### Agent runtime
+### Conversation state
 
-Executa o loop agentico com:
+Guarda a fase atual da conversa.
 
-- `maxSteps`;
-- `maxRetries`;
-- `timeout`;
-- logs por step;
-- tools com schema;
-- notificacao ao responsavel quando houver risco.
+Estados iniciais:
 
-### Banco
+- `new`;
+- `permission_sent`;
+- `permission_accepted`;
+- `segment_pain_sent`;
+- `diagnostic_question_sent`;
+- `onboarding`;
+- `daily_checkin`;
+- `entry_capture`;
+- `human_review_needed`;
+- `opt_out`.
 
-PostgreSQL/Supabase recomendado.
+### Julia agent runtime
+
+Executa o loop agentico:
+
+```ts
+{
+  maxSteps: 8,
+  maxRetries: 2,
+  timeoutMs: 60000
+}
+```
+
+Modelo mental:
+
+```text
+think -> choose tool -> execute -> observe -> decide next action
+```
+
+O runtime deve ser separado da camada de entrega. Ele decide conteudo e acoes; a entrega decide split, delay e envio.
+
+### Auditoria e logs
+
+Logs sao parte central do produto.
+
+O sistema deve registrar:
+
+- webhook recebido;
+- webhook ignorado e motivo;
+- mensagem recebida;
+- texto consolidado pelo buffer;
+- inicio de agent run;
+- estado de conversa;
+- objetivo do step;
+- tool chamada;
+- input e output da tool;
+- resposta final da Julia;
+- plano de delivery;
+- mensagens enviadas;
+- tempo total do run.
+
+No MVP local, os logs podem ficar em memoria.
+Antes de producao, devem ir para Supabase em `agent_runs`, `agent_steps` e eventos de mensagem.
+
+### Tools
+
+Tools sao as acoes reais da Julia.
+
+Exemplos:
+
+- `get_user`;
+- `create_user`;
+- `update_user`;
+- `get_memory`;
+- `save_memory`;
+- `save_entry`;
+- `get_financial_summary`;
+- `calculate_price`;
+- `schedule_checkin`;
+- `notify_accountant`;
+- `research_market`.
+
+Toda tool deve ter schema, log, retry limitado e politica de confirmacao.
+
+### Delivery humanizado
+
+Responsavel por transformar a resposta final em WhatsApp bom.
 
 Regras:
 
-- toda tabela operacional tem `tenant_id`;
-- nenhuma query de produto sem filtro de tenant;
-- RLS quando usar Supabase;
-- service role apenas em backend confiavel.
+- quebrar resposta em blocos naturais;
+- evitar textos longos;
+- aplicar delay por tamanho;
+- enviar status digitando quando suportado;
+- variar frases de check-in;
+- nao simular demora exagerada.
 
-### Redis / filas
+### Supabase
 
 Usado para:
 
-- buffer de mensagens;
-- idempotencia;
-- jobs;
-- cache de pesquisa de mercado;
-- controle de retry;
-- rate limit por tenant e usuario.
+- tenants;
+- usuarios MEI;
+- memoria estruturada;
+- lancamentos;
+- estados de conversa;
+- agent runs;
+- agent steps;
+- alertas;
+- jobs.
+
+Toda tabela operacional deve ter `tenant_id`.
 
 ## Tabelas principais
 
 ### tenants
 
 - id;
-- name;
 - brand_name;
 - whatsapp_instance;
 - whatsapp_number;
-- plan;
 - status;
 - settings_json;
 - created_at.
@@ -132,22 +189,26 @@ Usado para:
 - tenant_id;
 - phone;
 - name;
-- profile_type;
 - activity;
 - city;
 - onboarding_status;
+- conversation_state;
 - checkin_time;
+- opt_out_at;
 - created_at;
 - updated_at.
 
-### onboarding_answers
+### memory_items
 
 - id;
 - tenant_id;
 - user_id;
-- step;
+- type;
+- key;
 - value_json;
-- created_at.
+- confidence;
+- created_at;
+- updated_at.
 
 ### entries
 
@@ -162,18 +223,6 @@ Usado para:
 - raw_message;
 - created_at.
 
-### alerts
-
-- id;
-- tenant_id;
-- user_id;
-- type;
-- severity;
-- status;
-- scheduled_at;
-- payload_json;
-- created_at.
-
 ### agent_runs
 
 - id;
@@ -181,10 +230,22 @@ Usado para:
 - user_id;
 - message_id;
 - status;
+- objective;
 - steps_used;
 - started_at;
 - finished_at;
 - error_message.
+
+### audit_events
+
+- id;
+- tenant_id;
+- user_id;
+- message_id;
+- run_id;
+- type;
+- payload_json;
+- created_at.
 
 ### agent_steps
 
@@ -199,57 +260,34 @@ Usado para:
 - status;
 - created_at.
 
-## Jobs automaticos
+### alerts
 
-Jobs iniciais:
+- id;
+- tenant_id;
+- user_id;
+- type;
+- severity;
+- status;
+- payload_json;
+- created_at.
 
-- check-in diario;
-- lembrete de DAS;
-- lembrete de DASN-SIMEI;
-- resumo semanal;
-- usuario sem lancamento ha 3 dias;
-- cliente perto do limite anual;
-- digest de risco para contador.
+## MVP tecnico
 
-Regras:
+Primeira entrega:
 
-- todo job gera log;
-- todo job deve ser idempotente;
-- todo job tem retry limitado;
-- job fiscal critico cria alerta para contador quando houver risco.
+1. webhook Evolution recebendo mensagem;
+2. buffer simples por usuario;
+3. estado de conversa em memoria local ou Supabase;
+4. Julia respondendo primeiro contato e check-in;
+5. split + typing delay;
+6. logs basicos;
+7. typecheck e simulacoes.
 
-## Envio humanizado
+Fora do primeiro ciclo:
 
-O agente decide o conteudo. A camada de entrega decide como enviar.
-
-Pipeline:
-
-1. receber resposta final;
-2. quebrar em blocos naturais;
-3. aplicar delay por tamanho;
-4. enviar status digitando quando suportado;
-5. enviar mensagem;
-6. registrar entrega.
-
-Regras:
-
-- evitar texto longo em uma unica mensagem;
-- nao quebrar numeros ou listas importantes;
-- nao simular demora exagerada;
-- nao esconder que e assistente quando perguntado.
-
-## Ambientes
-
-Obrigatorio separar:
-
-- dev;
-- staging;
-- producao.
-
-Cada ambiente deve ter:
-
-- banco separado;
-- chaves separadas;
-- instancias WhatsApp separadas;
-- logs separados;
-- webhook separado.
+- painel completo;
+- cobranca;
+- integracao bancaria;
+- emissao de nota;
+- API oficial da Meta;
+- automacao fiscal critica.

@@ -17,6 +17,47 @@ Toda tool precisa ter:
 
 ## Tools essenciais do MVP
 
+### get_segment_pain
+
+Retorna uma dor curta do segmento para a Julia mostrar proximidade antes de pedir dados.
+
+Entrada:
+
+```json
+{ "activity": "aluguel de kit festa" }
+```
+
+Saida:
+
+```json
+{
+  "activity": "aluguel de kit festa",
+  "pain": "Nesse tipo de rotina, uma dor comum e controlar reserva, entrega, pagamento final e reposicao de itens sem misturar tudo."
+}
+```
+
+Exige confirmacao humana: nao.
+
+### get_diagnostic_question
+
+Retorna a primeira pergunta contextual do segmento.
+
+Entrada:
+
+```json
+{ "activity": "manicure" }
+```
+
+Saida:
+
+```json
+{
+  "question": "Hoje voce costuma separar o dinheiro dos atendimentos das suas contas pessoais ou fica tudo junto?"
+}
+```
+
+Exige confirmacao humana: nao.
+
 ### get_tenant
 
 Busca o tenant pela instancia do WhatsApp.

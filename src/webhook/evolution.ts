@@ -1,5 +1,9 @@
-import { runAgentTurn } from "../agent/agent";
+import { runJuliaTurn } from "../agent/agent";
+import { logAuditEvent } from "../agent/audit";
+import { bufferIncomingMessage } from "../agent/conversation";
+import { createDeliveryPlan } from "../agent/delivery";
 import type { Tenant } from "../agent/types";
+import { sendEvolutionMessage } from "./delivery";
 
 type EvolutionWebhookPayload = {
   instance: string;
@@ -19,27 +23,136 @@ type EvolutionWebhookPayload = {
 };
 
 export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
-  if (payload.data?.key?.fromMe) return { ignored: true };
+  logAuditEvent({
+    type: "webhook_received",
+    messageId: payload.data?.key?.id,
+    payload: {
+      instance: payload.instance,
+      remoteJid: payload.data?.key?.remoteJid,
+      fromMe: payload.data?.key?.fromMe,
+      text: getMessageText(payload)
+    }
+  });
+
+  if (payload.data?.key?.fromMe) {
+    logAuditEvent({
+      type: "webhook_ignored",
+      messageId: payload.data?.key?.id,
+      payload: {
+        reason: "from_me"
+      }
+    });
+
+    return { ignored: true };
+  }
 
   const tenant = await findTenantByInstance(payload.instance);
-  if (!tenant || tenant.status !== "active") return { ignored: true };
+  if (!tenant || tenant.status !== "active") {
+    logAuditEvent({
+      type: "webhook_ignored",
+      tenant: tenant ?? undefined,
+      messageId: payload.data?.key?.id,
+      payload: {
+        reason: "tenant_inactive_or_not_found",
+        instance: payload.instance
+      }
+    });
+
+    return { ignored: true };
+  }
 
   const phone = normalizeRemoteJid(payload.data?.key?.remoteJid);
   const text = getMessageText(payload);
-  if (!phone || !text) return { ignored: true };
+  if (!phone || !text) {
+    logAuditEvent({
+      type: "webhook_ignored",
+      tenant,
+      phone,
+      messageId: payload.data?.key?.id,
+      payload: {
+        reason: "missing_phone_or_text"
+      }
+    });
 
-  const output = await runAgentTurn({
+    return { ignored: true };
+  }
+
+  const bufferedText = await bufferIncomingMessage(
+    {
+      tenant,
+      phone
+    },
+    text
+  );
+
+  logAuditEvent({
+    type: "message_buffered",
     tenant,
     phone,
-    text,
+    messageId: payload.data?.key?.id,
+    payload: {
+      text
+    }
+  });
+
+  if (!bufferedText) return { buffered: true };
+
+  logAuditEvent({
+    type: "message_ready",
+    tenant,
+    phone,
+    messageId: payload.data?.key?.id,
+    payload: {
+      text: bufferedText
+    }
+  });
+
+  const output = await runJuliaTurn({
+    tenant,
+    phone,
+    text: bufferedText,
     messageId: payload.data?.key?.id
   });
 
-  await sendWhatsAppMessage(tenant, phone, output.answer);
+  const deliveryPlan = createDeliveryPlan(output.answer);
+
+  logAuditEvent({
+    type: "delivery_planned",
+    tenant,
+    phone,
+    messageId: payload.data?.key?.id,
+    runId: output.runId,
+    payload: {
+      messages: deliveryPlan.messages,
+      totalTypingDelayMs: deliveryPlan.totalTypingDelayMs
+    }
+  });
+
+  for (const message of deliveryPlan.messages) {
+    await delay(message.typingDelayMs);
+    const sendResult = await sendEvolutionMessage(tenant, phone, message);
+
+    logAuditEvent({
+      type: "message_sent",
+      tenant,
+      phone,
+      messageId: payload.data?.key?.id,
+      runId: output.runId,
+      payload: {
+        text: message.text,
+        typingDelayMs: message.typingDelayMs,
+        sendResult
+      }
+    });
+  }
 
   return {
     sent: true,
-    stepsUsed: output.stepsUsed
+    state: output.state,
+    objective: output.objective,
+    stepsUsed: output.stepsUsed,
+    messagesSent: deliveryPlan.messages.length,
+    totalTypingDelayMs: deliveryPlan.totalTypingDelayMs
   };
 }
 
@@ -61,11 +174,6 @@ function getMessageText(payload: EvolutionWebhookPayload) {
   return payload.data?.message?.conversation ?? payload.data?.message?.extendedTextMessage?.text;
 }
 
-async function sendWhatsAppMessage(tenant: Tenant, phone: string, text: string) {
-  return {
-    instance: tenant.whatsappInstance,
-    phone,
-    text
-  };
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
-

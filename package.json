@@ -4,10 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "dev": "tsx src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "simulate:julia": "tsx src/agent/simulate-julia.ts",
+    "test:webhook": "tsx src/webhook/test-evolution.ts"
+  },
+  "dependencies": {
+    "tsx": "^4.20.6"
   },
   "devDependencies": {
+    "@types/node": "^25.9.1",
     "typescript": "^5.9.3"
   }
 }
-
