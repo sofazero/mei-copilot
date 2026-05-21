@@ -8,7 +8,7 @@ type ConversationRecord = {
 
 type PendingMessage = {
   parts: string[];
-  token: number;
+  timer?: ReturnType<typeof setTimeout>;
 };
 
 const conversations = new Map<string, ConversationRecord>();
@@ -32,25 +32,36 @@ export function saveConversationState(profile: JuliaProfile, state: Conversation
   return state;
 }
 
-export async function bufferIncomingMessage(profile: JuliaProfile, text: string, waitMs = 20000) {
+export function enqueueIncomingMessage(
+  profile: JuliaProfile,
+  text: string,
+  onReady: (text: string) => void | Promise<void>,
+  waitMs = 20000
+) {
   const key = conversationKey(profile.tenant.id, profile.phone);
   const current = pendingMessages.get(key);
-  const token = (current?.token ?? 0) + 1;
+
+  if (current?.timer) {
+    clearTimeout(current.timer);
+  }
+
+  const parts = [...(current?.parts ?? []), text];
+  const timer = setTimeout(() => {
+    const latest = pendingMessages.get(key);
+    if (!latest) return;
+
+    pendingMessages.delete(key);
+    void onReady(latest.parts.join("\n").trim());
+  }, waitMs);
 
   pendingMessages.set(key, {
-    parts: [...(current?.parts ?? []), text],
-    token
+    parts,
+    timer
   });
 
-  await delay(waitMs);
-
-  const latest = pendingMessages.get(key);
-  if (!latest || latest.token !== token) return null;
-
-  pendingMessages.delete(key);
-  return latest.parts.join("\n").trim();
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return {
+    buffered: true,
+    partsCount: parts.length,
+    waitMs
+  };
 }

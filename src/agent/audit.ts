@@ -28,6 +28,7 @@ export function logAuditEvent(input: AuditInput): AuditEvent {
   };
 
   auditEvents.push(event);
+  console.log(JSON.stringify({ audit: event }));
 
   return event;
 }

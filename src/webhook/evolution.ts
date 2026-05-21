@@ -1,6 +1,6 @@
 import { runJuliaTurn } from "../agent/agent";
 import { logAuditEvent } from "../agent/audit";
-import { bufferIncomingMessage } from "../agent/conversation";
+import { enqueueIncomingMessage } from "../agent/conversation";
 import { createDeliveryPlan } from "../agent/delivery";
 import type { Tenant } from "../agent/types";
 import { sendEvolutionMessage, sendEvolutionPresence } from "./delivery";
@@ -92,12 +92,19 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
     return { ignored: true };
   }
 
-  const bufferedText = await bufferIncomingMessage(
+  const bufferResult = enqueueIncomingMessage(
     {
       tenant,
       phone
     },
-    text
+    text,
+    (bufferedText) =>
+      processBufferedMessage({
+        tenant,
+        phone,
+        text: bufferedText,
+        messageId: payload.data?.key?.id
+      })
   );
 
   logAuditEvent({
@@ -106,36 +113,44 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
     phone,
     messageId: payload.data?.key?.id,
     payload: {
-      text
+      text,
+      partsCount: bufferResult.partsCount,
+      waitMs: bufferResult.waitMs
     }
   });
 
-  if (!bufferedText) return { buffered: true };
+  return {
+    buffered: true,
+    partsCount: bufferResult.partsCount,
+    waitMs: bufferResult.waitMs
+  };
+}
 
+async function processBufferedMessage(input: { tenant: Tenant; phone: string; text: string; messageId?: string }) {
   logAuditEvent({
     type: "message_ready",
-    tenant,
-    phone,
-    messageId: payload.data?.key?.id,
+    tenant: input.tenant,
+    phone: input.phone,
+    messageId: input.messageId,
     payload: {
-      text: bufferedText
+      text: input.text
     }
   });
 
   const output = await runJuliaTurn({
-    tenant,
-    phone,
-    text: bufferedText,
-    messageId: payload.data?.key?.id
+    tenant: input.tenant,
+    phone: input.phone,
+    text: input.text,
+    messageId: input.messageId
   });
 
   const deliveryPlan = createDeliveryPlan(output.answer);
 
   logAuditEvent({
     type: "delivery_planned",
-    tenant,
-    phone,
-    messageId: payload.data?.key?.id,
+    tenant: input.tenant,
+    phone: input.phone,
+    messageId: input.messageId,
     runId: output.runId,
     payload: {
       messages: deliveryPlan.messages,
@@ -144,13 +159,13 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
   });
 
   for (const message of deliveryPlan.messages) {
-    const presenceResult = await sendEvolutionPresence(tenant, phone, message.typingDelayMs);
+    const presenceResult = await sendEvolutionPresence(input.tenant, input.phone, message.typingDelayMs);
 
     logAuditEvent({
       type: "presence_sent",
-      tenant,
-      phone,
-      messageId: payload.data?.key?.id,
+      tenant: input.tenant,
+      phone: input.phone,
+      messageId: input.messageId,
       runId: output.runId,
       payload: {
         typingDelayMs: message.typingDelayMs,
@@ -160,13 +175,13 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
 
     await delay(message.typingDelayMs);
 
-    const sendResult = await sendEvolutionMessage(tenant, phone, message);
+    const sendResult = await sendEvolutionMessage(input.tenant, input.phone, message);
 
     logAuditEvent({
       type: "message_sent",
-      tenant,
-      phone,
-      messageId: payload.data?.key?.id,
+      tenant: input.tenant,
+      phone: input.phone,
+      messageId: input.messageId,
       runId: output.runId,
       payload: {
         text: message.text,
@@ -175,15 +190,6 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
       }
     });
   }
-
-  return {
-    sent: true,
-    state: output.state,
-    objective: output.objective,
-    stepsUsed: output.stepsUsed,
-    messagesSent: deliveryPlan.messages.length,
-    totalTypingDelayMs: deliveryPlan.totalTypingDelayMs
-  };
 }
 
 async function findTenantByInstance(instance: string): Promise<Tenant | null> {

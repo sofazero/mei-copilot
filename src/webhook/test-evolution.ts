@@ -17,6 +17,8 @@ const result = await handleEvolutionWebhook({
   }
 });
 
+await delay(26000);
+
 console.log("Resultado do webhook");
 console.log("====================");
 console.log(JSON.stringify(result, null, 2));
@@ -24,3 +26,7 @@ console.log(JSON.stringify(result, null, 2));
 console.log("\nLogs de auditoria");
 console.log("=================");
 console.log(JSON.stringify(getAuditEvents(), null, 2));
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
