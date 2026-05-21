@@ -49,10 +49,8 @@ export async function sendEvolutionPresence(
     },
     body: JSON.stringify({
       number: phone,
-      options: {
-        delay: delayMs,
-        presence: "composing"
-      }
+      delay: delayMs,
+      presence: "composing"
     })
   });
 

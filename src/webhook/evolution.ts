@@ -159,19 +159,33 @@ async function processBufferedMessage(input: { tenant: Tenant; phone: string; te
   });
 
   for (const message of deliveryPlan.messages) {
-    const presenceResult = await sendEvolutionPresence(input.tenant, input.phone, message.typingDelayMs);
+    try {
+      const presenceResult = await sendEvolutionPresence(input.tenant, input.phone, message.typingDelayMs);
 
-    logAuditEvent({
-      type: "presence_sent",
-      tenant: input.tenant,
-      phone: input.phone,
-      messageId: input.messageId,
-      runId: output.runId,
-      payload: {
-        typingDelayMs: message.typingDelayMs,
-        presenceResult
-      }
-    });
+      logAuditEvent({
+        type: "presence_sent",
+        tenant: input.tenant,
+        phone: input.phone,
+        messageId: input.messageId,
+        runId: output.runId,
+        payload: {
+          typingDelayMs: message.typingDelayMs,
+          presenceResult
+        }
+      });
+    } catch (error) {
+      logAuditEvent({
+        type: "presence_failed",
+        tenant: input.tenant,
+        phone: input.phone,
+        messageId: input.messageId,
+        runId: output.runId,
+        payload: {
+          typingDelayMs: message.typingDelayMs,
+          error: error instanceof Error ? error.message : "Erro inesperado ao enviar presença"
+        }
+      });
+    }
 
     await delay(message.typingDelayMs);
 
