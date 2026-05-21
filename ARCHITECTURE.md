@@ -57,7 +57,7 @@ Camada obrigatoria para WhatsApp.
 
 Responsabilidades:
 
-- aguardar poucos segundos antes de responder;
+- aguardar 20 segundos antes de responder;
 - juntar mensagens seguidas do mesmo usuario;
 - evitar resposta para cada fragmento;
 - reduzir sensacao de robo.
@@ -150,8 +150,8 @@ Regras:
 
 - quebrar resposta em blocos naturais;
 - evitar textos longos;
-- aplicar delay por tamanho;
-- enviar status digitando quando suportado;
+- enviar status digitando pela Evolution API antes de cada bloco;
+- aplicar delay por tamanho via presence `composing`;
 - variar frases de check-in;
 - nao simular demora exagerada.
 

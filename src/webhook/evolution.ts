@@ -3,7 +3,7 @@ import { logAuditEvent } from "../agent/audit";
 import { bufferIncomingMessage } from "../agent/conversation";
 import { createDeliveryPlan } from "../agent/delivery";
 import type { Tenant } from "../agent/types";
-import { sendEvolutionMessage } from "./delivery";
+import { sendEvolutionMessage, sendEvolutionPresence } from "./delivery";
 
 type EvolutionWebhookPayload = {
   instance: string;
@@ -144,7 +144,22 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
   });
 
   for (const message of deliveryPlan.messages) {
+    const presenceResult = await sendEvolutionPresence(tenant, phone, message.typingDelayMs);
+
+    logAuditEvent({
+      type: "presence_sent",
+      tenant,
+      phone,
+      messageId: payload.data?.key?.id,
+      runId: output.runId,
+      payload: {
+        typingDelayMs: message.typingDelayMs,
+        presenceResult
+      }
+    });
+
     await delay(message.typingDelayMs);
+
     const sendResult = await sendEvolutionMessage(tenant, phone, message);
 
     logAuditEvent({

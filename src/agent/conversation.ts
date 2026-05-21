@@ -32,7 +32,7 @@ export function saveConversationState(profile: JuliaProfile, state: Conversation
   return state;
 }
 
-export async function bufferIncomingMessage(profile: JuliaProfile, text: string, waitMs = 3500) {
+export async function bufferIncomingMessage(profile: JuliaProfile, text: string, waitMs = 20000) {
   const key = conversationKey(profile.tenant.id, profile.phone);
   const current = pendingMessages.get(key);
   const token = (current?.token ?? 0) + 1;

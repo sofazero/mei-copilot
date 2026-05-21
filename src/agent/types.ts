@@ -102,6 +102,7 @@ export type AuditEventType =
   | "tool_completed"
   | "agent_run_completed"
   | "delivery_planned"
+  | "presence_sent"
   | "message_sent";
 
 export type AuditEvent = {
