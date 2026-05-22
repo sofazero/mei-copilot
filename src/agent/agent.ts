@@ -219,6 +219,11 @@ async function decideNextJuliaStep(
     };
   }
 
+  if (asksForFinancialSummary(normalizedText)) {
+    const period = asksForMonthlySummary(normalizedText) ? "month" : "today";
+    return getFinancialSummary(input, period, runId, stepNumber);
+  }
+
   if (state === "daily_checkin" || state === "entry_capture") {
     const entries = extractFinancialEntries(input.text);
     if (entries.length > 0) {
@@ -404,6 +409,7 @@ function parseFinancialEntry(clause: string, sourceText: string): FinancialEntry
   return {
     type,
     amount,
+    category: inferEntryCategory(type, clause, sourceText),
     description: extractEntryDescription(clause),
     sourceText
   };
@@ -433,6 +439,32 @@ function extractEntryDescription(text: string) {
   return withoutAmount || undefined;
 }
 
+function inferEntryCategory(type: FinancialEntryInput["type"], clause: string, sourceText: string) {
+  const text = normalizeText(`${clause} ${sourceText}`);
+
+  if (type === "income") {
+    if (text.includes("festa") || text.includes("kit") || text.includes("atendimento") || text.includes("servico")) {
+      return "serviços/vendas";
+    }
+
+    return "receita operacional";
+  }
+
+  if (text.includes("material") || text.includes("peca") || text.includes("produto") || text.includes("estoque")) {
+    return "materiais";
+  }
+
+  if (text.includes("entrega") || text.includes("frete") || text.includes("uber") || text.includes("combustivel")) {
+    return "transporte/entrega";
+  }
+
+  if (text.includes("aluguel") || text.includes("energia") || text.includes("internet") || text.includes("telefone")) {
+    return "estrutura";
+  }
+
+  return "despesas gerais";
+}
+
 function sumEntries(entries: FinancialEntryInput[], type: FinancialEntryInput["type"]) {
   return entries.filter((entry) => entry.type === type).reduce((total, entry) => total + entry.amount, 0);
 }
@@ -441,10 +473,92 @@ function buildEntrySummary(entries: FinancialEntryInput[], incomeTotal: number, 
   const parts = entries.map((entry) => {
     const label = entry.type === "income" ? "entrada" : "gasto";
     const description = entry.description ? ` de ${entry.description}` : "";
-    return `${label} de ${formatMoney(entry.amount)}${description}`;
+    return `${label} de ${formatMoney(entry.amount)}${description} (${entry.category})`;
   });
 
   return `Anotei aqui: ${joinHuman(parts)}.\n\nNo resumo de hoje, entrou ${formatMoney(incomeTotal)}, saiu ${formatMoney(expenseTotal)} e o saldo ficou ${formatMoney(balance)}.`;
+}
+
+async function getFinancialSummary(
+  input: JuliaTurnInput,
+  period: "today" | "month",
+  runId: string,
+  stepNumber: number
+): Promise<JuliaDecision> {
+  const result = await executeTool(
+    {
+      id: crypto.randomUUID(),
+      name: "get_entries",
+      input: {
+        period
+      }
+    },
+    {
+      tenant: input.tenant,
+      phone: input.phone,
+      runId,
+      stepNumber
+    }
+  );
+
+  const entries = isRecord(result.result) && Array.isArray(result.result.entries) ? result.result.entries : [];
+  const summary = summarizeRows(entries);
+
+  return {
+    state: "daily_checkin",
+    objective: period === "month" ? "resumir mês financeiro" : "resumir dia financeiro",
+    answer: buildFinancialSummaryAnswer(period, summary)
+  };
+}
+
+function summarizeRows(rows: unknown[]) {
+  const summary = {
+    income: 0,
+    expense: 0,
+    categories: new Map<string, number>()
+  };
+
+  for (const row of rows) {
+    if (!isRecord(row)) continue;
+
+    const amount = Number(row.amount);
+    const type = row.type;
+    const category = typeof row.category === "string" ? row.category : "sem categoria";
+
+    if (!Number.isFinite(amount)) continue;
+
+    if (type === "income") summary.income += amount;
+    if (type === "expense") {
+      summary.expense += amount;
+      summary.categories.set(category, (summary.categories.get(category) ?? 0) + amount);
+    }
+  }
+
+  return summary;
+}
+
+function buildFinancialSummaryAnswer(period: "today" | "month", summary: ReturnType<typeof summarizeRows>) {
+  const label = period === "month" ? "este mês" : "hoje";
+  const balance = summary.income - summary.expense;
+
+  if (summary.income === 0 && summary.expense === 0) {
+    return `Por enquanto, não tenho lançamentos salvos para ${label}.\n\nQuando tiver entrada ou gasto, pode me mandar em linguagem normal.`;
+  }
+
+  const categoryText = [...summary.categories.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, amount]) => `${category}: ${formatMoney(amount)}`)
+    .join("\n");
+
+  return `Resumo de ${label}:\n\nEntradas: ${formatMoney(summary.income)}\nGastos: ${formatMoney(summary.expense)}\nSaldo: ${formatMoney(balance)}${categoryText ? `\n\nGastos por categoria:\n${categoryText}` : ""}`;
+}
+
+function asksForFinancialSummary(text: string) {
+  return /\b(como foi|resumo|quanto sobrou|saldo|fechou|resultado)\b/.test(text);
+}
+
+function asksForMonthlySummary(text: string) {
+  return /\b(mes|mensal|esse mes|este mes)\b/.test(text);
 }
 
 function joinHuman(parts: string[]) {

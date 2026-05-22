@@ -1,6 +1,6 @@
 import { logAuditEvent } from "./audit";
 import { logError } from "../logger";
-import { insertSupabase } from "../storage/supabase";
+import { getFinancialEntriesFromSupabase, insertSupabase } from "../storage/supabase";
 import type { MarketResearch, Tenant, ToolCall, ToolResult, User } from "./types";
 
 type ToolContext = {
@@ -249,6 +249,7 @@ async function saveEntry(tenantId: string, phone: string, input: Record<string, 
     phone,
     type: enumValue(input.type, ["income", "expense"]) ?? "income",
     amount: numberValue(input.amount) ?? 0,
+    category: stringValue(input.category) ?? "sem categoria",
     description: stringValue(input.description),
     source_text: stringValue(input.sourceText),
     occurred_at: stringValue(input.occurredAt) ?? todayDate(),
@@ -265,6 +266,7 @@ async function saveEntry(tenantId: string, phone: string, input: Record<string, 
       phone,
       type: entry.type,
       amount: entry.amount,
+      category: entry.category,
       description: entry.description,
       occurredAt: entry.occurred_at
     };
@@ -281,6 +283,7 @@ async function saveEntry(tenantId: string, phone: string, input: Record<string, 
       phone,
       type: entry.type,
       amount: entry.amount,
+      category: entry.category,
       description: entry.description,
       occurredAt: entry.occurred_at,
       error: error instanceof Error ? error.message : "Erro inesperado ao salvar lançamento"
@@ -289,12 +292,31 @@ async function saveEntry(tenantId: string, phone: string, input: Record<string, 
 }
 
 async function getEntries(tenantId: string, phone: string, input: Record<string, unknown>) {
-  return {
-    tenantId,
-    phone,
-    period: input.period ?? "current_month",
-    entries: []
-  };
+  const period = enumValue(input.period, ["today", "month"]) ?? "today";
+
+  try {
+    const entries = await getFinancialEntriesFromSupabase(tenantId, phone, period);
+    return {
+      tenantId,
+      phone,
+      period,
+      entries
+    };
+  } catch (error) {
+    logError("financial_entries_read_error", error, {
+      tenantId,
+      phone,
+      period
+    });
+
+    return {
+      tenantId,
+      phone,
+      period,
+      entries: [],
+      error: error instanceof Error ? error.message : "Erro inesperado ao buscar lançamentos"
+    };
+  }
 }
 
 function todayDate() {

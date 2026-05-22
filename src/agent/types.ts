@@ -47,6 +47,7 @@ export type FinancialEntryType = "income" | "expense";
 export type FinancialEntryInput = {
   type: FinancialEntryType;
   amount: number;
+  category: string;
   description?: string;
   sourceText: string;
   occurredAt?: string;

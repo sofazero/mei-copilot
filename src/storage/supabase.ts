@@ -6,6 +6,14 @@ type SupabaseWriteInput = {
   onConflict?: string;
 };
 
+export type FinancialEntryRow = {
+  type: "income" | "expense";
+  amount: number | string;
+  category?: string | null;
+  description?: string | null;
+  occurred_at: string;
+};
+
 export function hasSupabaseConfig() {
   const config = getConfig();
   return Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
@@ -70,6 +78,28 @@ export async function getContactFromSupabase(tenantId: string, phone: string) {
   return rows[0] ?? null;
 }
 
+export async function getFinancialEntriesFromSupabase(tenantId: string, phone: string, period: "today" | "month") {
+  const config = getConfig();
+  if (!config.supabaseUrl || !config.supabaseServiceRoleKey) return [];
+
+  const url = new URL(`${config.supabaseUrl}/rest/v1/financial_entries`);
+  url.searchParams.set("tenant_id", `eq.${tenantId}`);
+  url.searchParams.set("phone", `eq.${phone}`);
+  url.searchParams.set("occurred_at", `gte.${periodStart(period)}`);
+  url.searchParams.set("select", "type,amount,category,description,occurred_at");
+  url.searchParams.set("order", "occurred_at.desc,created_at.desc");
+
+  const response = await fetch(url, {
+    headers: supabaseHeaders(config.supabaseServiceRoleKey)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase financial entries read failed: ${response.status} ${await response.text()}`);
+  }
+
+  return (await response.json()) as FinancialEntryRow[];
+}
+
 async function writeSupabase(input: SupabaseWriteInput) {
   const config = getConfig();
   if (!config.supabaseUrl || !config.supabaseServiceRoleKey) return null;
@@ -99,4 +129,11 @@ function supabaseHeaders(serviceRoleKey: string) {
     apikey: serviceRoleKey,
     Authorization: `Bearer ${serviceRoleKey}`
   };
+}
+
+function periodStart(period: "today" | "month") {
+  const now = new Date();
+  if (period === "today") return now.toISOString().slice(0, 10);
+
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
 }
