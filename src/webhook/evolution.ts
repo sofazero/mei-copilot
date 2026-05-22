@@ -2,9 +2,9 @@ import { runJuliaTurn } from "../agent/agent";
 import { logAuditEvent } from "../agent/audit";
 import { enqueueIncomingMessage } from "../agent/conversation";
 import { createDeliveryPlan } from "../agent/delivery";
-import type { Tenant } from "../agent/types";
+import type { JuliaProfile, Tenant } from "../agent/types";
 import { logError } from "../logger";
-import { upsertSupabase } from "../storage/supabase";
+import { getContactFromSupabase, upsertSupabase } from "../storage/supabase";
 import { sendEvolutionMessage, sendEvolutionPresence } from "./delivery";
 
 type EvolutionWebhookPayload = {
@@ -140,7 +140,6 @@ async function persistContact(tenant: Tenant, phone: string) {
         tenant_id: tenant.id,
         tenant_name: tenant.brandName,
         phone,
-        status: "active",
         updated_at: now
       },
       "tenant_id,phone"
@@ -164,9 +163,22 @@ async function processBufferedMessage(input: { tenant: Tenant; phone: string; te
     }
   });
 
-  const output = await runJuliaTurn({
+  const profile = await loadJuliaProfile(input.tenant, input.phone);
+
+  logAuditEvent({
+    type: "contact_profile_loaded",
     tenant: input.tenant,
     phone: input.phone,
+    messageId: input.messageId,
+    payload: {
+      name: profile.name,
+      activity: profile.activity,
+      city: profile.city
+    }
+  });
+
+  const output = await runJuliaTurn({
+    ...profile,
     text: input.text,
     messageId: input.messageId
   });
@@ -233,6 +245,32 @@ async function processBufferedMessage(input: { tenant: Tenant; phone: string; te
   }
 }
 
+async function loadJuliaProfile(tenant: Tenant, phone: string): Promise<JuliaProfile> {
+  const profile: JuliaProfile = {
+    tenant,
+    phone
+  };
+
+  try {
+    const contact = await getContactFromSupabase(tenant.id, phone);
+    if (!contact || contact.status === "paused") return profile;
+
+    return {
+      ...profile,
+      name: stringOrUndefined(contact.name),
+      activity: stringOrUndefined(contact.activity),
+      city: stringOrUndefined(contact.city)
+    };
+  } catch (error) {
+    logError("contact_read_error", error, {
+      tenantId: tenant.id,
+      phone
+    });
+
+    return profile;
+  }
+}
+
 async function findTenantByInstance(instance: string): Promise<Tenant | null> {
   return {
     id: "tenant_demo",
@@ -257,4 +295,8 @@ function getMessageText(payload: EvolutionWebhookPayload) {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function stringOrUndefined(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : undefined;
 }

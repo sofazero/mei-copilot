@@ -94,6 +94,7 @@ export type DeliveryPlan = {
 export type AuditEventType =
   | "webhook_received"
   | "webhook_ignored"
+  | "contact_profile_loaded"
   | "message_buffered"
   | "message_ready"
   | "agent_run_started"

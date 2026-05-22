@@ -48,6 +48,28 @@ export async function getConversationFromSupabase(tenantId: string, phone: strin
   return rows[0] ?? null;
 }
 
+export async function getContactFromSupabase(tenantId: string, phone: string) {
+  const config = getConfig();
+  if (!config.supabaseUrl || !config.supabaseServiceRoleKey) return null;
+
+  const url = new URL(`${config.supabaseUrl}/rest/v1/contacts`);
+  url.searchParams.set("tenant_id", `eq.${tenantId}`);
+  url.searchParams.set("phone", `eq.${phone}`);
+  url.searchParams.set("select", "name,activity,city,status");
+  url.searchParams.set("limit", "1");
+
+  const response = await fetch(url, {
+    headers: supabaseHeaders(config.supabaseServiceRoleKey)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase contact read failed: ${response.status} ${await response.text()}`);
+  }
+
+  const rows = (await response.json()) as Array<Record<string, unknown>>;
+  return rows[0] ?? null;
+}
+
 async function writeSupabase(input: SupabaseWriteInput) {
   const config = getConfig();
   if (!config.supabaseUrl || !config.supabaseServiceRoleKey) return null;
