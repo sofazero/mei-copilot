@@ -42,6 +42,16 @@ export type ToolResult = {
   result: unknown;
 };
 
+export type FinancialEntryType = "income" | "expense";
+
+export type FinancialEntryInput = {
+  type: FinancialEntryType;
+  amount: number;
+  description?: string;
+  sourceText: string;
+  occurredAt?: string;
+};
+
 export type ToolName =
   | "get_segment_pain"
   | "get_diagnostic_question"

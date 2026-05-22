@@ -1,7 +1,14 @@
 import { logAuditEvent } from "./audit";
 import { getConversationContext, saveConversationState } from "./conversation";
 import { executeTool } from "./tools";
-import type { ConversationMemory, ConversationState, JuliaTurnInput, JuliaTurnOutput, ToolCall } from "./types";
+import type {
+  ConversationMemory,
+  ConversationState,
+  FinancialEntryInput,
+  JuliaTurnInput,
+  JuliaTurnOutput,
+  ToolCall
+} from "./types";
 
 const JULIA_MAX_STEPS = 8;
 
@@ -212,7 +219,19 @@ async function decideNextJuliaStep(
     };
   }
 
+  if (state === "daily_checkin" || state === "entry_capture") {
+    const entries = extractFinancialEntries(input.text);
+    if (entries.length > 0) {
+      return saveFinancialEntries(input, entries, runId, stepNumber);
+    }
+  }
+
   if (looksLikeEntry(normalizedText)) {
+    const entries = extractFinancialEntries(input.text);
+    if (entries.length > 0) {
+      return saveFinancialEntries(input, entries, runId, stepNumber);
+    }
+
     return {
       state: "entry_capture",
       objective: "capturar lançamento financeiro",
@@ -318,6 +337,126 @@ async function getSegmentPainAndQuestionMessage(input: JuliaTurnInput, runId: st
 
 async function getDiagnosticQuestion(input: JuliaTurnInput, runId: string, stepNumber: number) {
   return runStringTool(input, "get_diagnostic_question", { activity: input.activity }, "question", runId, stepNumber);
+}
+
+async function saveFinancialEntries(
+  input: JuliaTurnInput,
+  entries: FinancialEntryInput[],
+  runId: string,
+  stepNumber: number
+): Promise<JuliaDecision> {
+  const results = [];
+
+  for (const entry of entries) {
+    const result = await executeTool(
+      {
+        id: crypto.randomUUID(),
+        name: "save_entry",
+        input: entry
+      },
+      {
+        tenant: input.tenant,
+        phone: input.phone,
+        runId,
+        stepNumber
+      }
+    );
+
+    results.push(result.result);
+  }
+
+  const savedCount = results.filter((result) => isRecord(result) && result.saved === true).length;
+  const incomeTotal = sumEntries(entries, "income");
+  const expenseTotal = sumEntries(entries, "expense");
+  const balance = incomeTotal - expenseTotal;
+
+  if (savedCount !== entries.length) {
+    return {
+      state: "entry_capture",
+      objective: "registrar lançamentos financeiros",
+      answer: "Entendi os lançamentos, mas não consegui salvar tudo com segurança agora.\n\nPode me mandar de novo em instantes? Eu não quero registrar informação pela metade."
+    };
+  }
+
+  return {
+    state: "daily_checkin",
+    objective: "registrar lançamentos financeiros",
+    answer: buildEntrySummary(entries, incomeTotal, expenseTotal, balance)
+  };
+}
+
+function extractFinancialEntries(text: string): FinancialEntryInput[] {
+  return text
+    .split(/\s+e\s+|;|\n/gi)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((clause) => parseFinancialEntry(clause, text))
+    .filter((entry): entry is FinancialEntryInput => Boolean(entry));
+}
+
+function parseFinancialEntry(clause: string, sourceText: string): FinancialEntryInput | null {
+  const normalized = normalizeText(clause);
+  const type = detectEntryType(normalized);
+  const amount = extractAmount(clause);
+
+  if (!type || !amount) return null;
+
+  return {
+    type,
+    amount,
+    description: extractEntryDescription(clause),
+    sourceText
+  };
+}
+
+function detectEntryType(text: string): FinancialEntryInput["type"] | null {
+  if (/\b(recebi|entrou|ganhei|vendi|venda|entrada|pix recebido)\b/.test(text)) return "income";
+  if (/\b(gastei|paguei|comprei|compra|gasto|despesa|saida)\b/.test(text)) return "expense";
+  return null;
+}
+
+function extractAmount(text: string) {
+  const match = text.match(/(?:r\$\s*)?(\d+(?:[.,]\d{1,2})?)/i);
+  if (!match) return null;
+
+  const amount = Number(match[1].replace(",", "."));
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function extractEntryDescription(text: string) {
+  const withoutAmount = text
+    .replace(/(?:r\$\s*)?\d+(?:[.,]\d{1,2})?/i, "")
+    .replace(/\b(hoje|recebi|entrou|ganhei|vendi|venda|entrada|gastei|paguei|comprei|compra|gasto|despesa|saida|de|com|em)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return withoutAmount || undefined;
+}
+
+function sumEntries(entries: FinancialEntryInput[], type: FinancialEntryInput["type"]) {
+  return entries.filter((entry) => entry.type === type).reduce((total, entry) => total + entry.amount, 0);
+}
+
+function buildEntrySummary(entries: FinancialEntryInput[], incomeTotal: number, expenseTotal: number, balance: number) {
+  const parts = entries.map((entry) => {
+    const label = entry.type === "income" ? "entrada" : "gasto";
+    const description = entry.description ? ` de ${entry.description}` : "";
+    return `${label} de ${formatMoney(entry.amount)}${description}`;
+  });
+
+  return `Anotei aqui: ${joinHuman(parts)}.\n\nNo resumo de hoje, entrou ${formatMoney(incomeTotal)}, saiu ${formatMoney(expenseTotal)} e o saldo ficou ${formatMoney(balance)}.`;
+}
+
+function joinHuman(parts: string[]) {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}`;
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL"
+  }).format(value);
 }
 
 async function runStringTool(

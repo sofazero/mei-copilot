@@ -1,4 +1,6 @@
 import { logAuditEvent } from "./audit";
+import { logError } from "../logger";
+import { insertSupabase } from "../storage/supabase";
 import type { MarketResearch, Tenant, ToolCall, ToolResult, User } from "./types";
 
 type ToolContext = {
@@ -241,15 +243,49 @@ async function saveOnboardingStep(tenantId: string, phone: string, input: Record
 }
 
 async function saveEntry(tenantId: string, phone: string, input: Record<string, unknown>) {
-  return {
-    saved: true,
-    tenantId,
+  const entry = {
+    id: crypto.randomUUID(),
+    tenant_id: tenantId,
     phone,
-    type: input.type,
-    amount: input.amount,
-    description: input.description,
-    occurredAt: input.occurredAt ?? new Date().toISOString()
+    type: enumValue(input.type, ["income", "expense"]) ?? "income",
+    amount: numberValue(input.amount) ?? 0,
+    description: stringValue(input.description),
+    source_text: stringValue(input.sourceText),
+    occurred_at: stringValue(input.occurredAt) ?? todayDate(),
+    created_at: new Date().toISOString()
   };
+
+  try {
+    await insertSupabase("financial_entries", entry);
+
+    return {
+      saved: true,
+      id: entry.id,
+      tenantId,
+      phone,
+      type: entry.type,
+      amount: entry.amount,
+      description: entry.description,
+      occurredAt: entry.occurred_at
+    };
+  } catch (error) {
+    logError("financial_entry_persist_error", error, {
+      tenantId,
+      phone,
+      entry
+    });
+
+    return {
+      saved: false,
+      tenantId,
+      phone,
+      type: entry.type,
+      amount: entry.amount,
+      description: entry.description,
+      occurredAt: entry.occurred_at,
+      error: error instanceof Error ? error.message : "Erro inesperado ao salvar lançamento"
+    };
+  }
 }
 
 async function getEntries(tenantId: string, phone: string, input: Record<string, unknown>) {
@@ -259,6 +295,10 @@ async function getEntries(tenantId: string, phone: string, input: Record<string,
     period: input.period ?? "current_month",
     entries: []
   };
+}
+
+function todayDate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 async function getDiagnostic(tenantId: string, phone: string) {

@@ -25,7 +25,8 @@ const messages = [
   "uso mais o WhatsApp mesmo",
   "já tenho MEI aberto",
   "costumo cobrar R$ 350 por festa",
-  "quero que sobre uns R$ 4.000 por mês"
+  "quero que sobre uns R$ 4.000 por mês",
+  "Hoje recebi 150,00 e gastei 40 de material"
 ];
 
 async function main() {
