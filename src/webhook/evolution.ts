@@ -3,6 +3,7 @@ import { logAuditEvent } from "../agent/audit";
 import { enqueueIncomingMessage } from "../agent/conversation";
 import { createDeliveryPlan } from "../agent/delivery";
 import type { Tenant } from "../agent/types";
+import { logError } from "../logger";
 import { upsertSupabase } from "../storage/supabase";
 import { sendEvolutionMessage, sendEvolutionPresence } from "./delivery";
 
@@ -145,13 +146,10 @@ async function persistContact(tenant: Tenant, phone: string) {
       "tenant_id,phone"
     );
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        contactPersistError: error instanceof Error ? error.message : "Erro inesperado ao persistir contato",
-        tenantId: tenant.id,
-        phone
-      })
-    );
+    logError("contact_persist_error", error, {
+      tenantId: tenant.id,
+      phone
+    });
   }
 }
 

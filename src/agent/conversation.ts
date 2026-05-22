@@ -1,5 +1,6 @@
 import type { ConversationState, JuliaProfile } from "./types";
 import { getConversationFromSupabase, upsertSupabase } from "../storage/supabase";
+import { logError } from "../logger";
 
 type ConversationRecord = {
   state: ConversationState;
@@ -37,11 +38,10 @@ export async function getConversationState(profile: JuliaProfile): Promise<Conve
       return state;
     }
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        conversationReadError: error instanceof Error ? error.message : "Erro inesperado ao ler conversa"
-      })
-    );
+    logError("conversation_read_error", error, {
+      tenantId: profile.tenant.id,
+      phone: profile.phone
+    });
   }
 
   return "new";
@@ -115,13 +115,11 @@ async function persistConversationState(profile: JuliaProfile, state: Conversati
       "tenant_id,phone"
     );
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        conversationPersistError: error instanceof Error ? error.message : "Erro inesperado ao persistir conversa",
-        tenantId: profile.tenant.id,
-        phone: profile.phone
-      })
-    );
+    logError("conversation_persist_error", error, {
+      tenantId: profile.tenant.id,
+      phone: profile.phone,
+      state
+    });
   }
 }
 
