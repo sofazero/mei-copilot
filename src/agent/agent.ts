@@ -301,7 +301,7 @@ function looksLikeEntry(text: string) {
 }
 
 function hasOpenMei(text: string) {
-  return /\b(ja tenho mei|tenho mei|mei aberto|ja sou mei|sou mei)\b/.test(text);
+  return /\b(ja tenho|tenho sim|ja tenho mei|tenho mei|mei aberto|ja sou mei|sou mei)\b/.test(text);
 }
 
 function isStartingMei(text: string) {
