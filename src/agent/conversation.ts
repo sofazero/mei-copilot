@@ -1,10 +1,11 @@
-import type { ConversationState, JuliaProfile } from "./types";
+import type { ConversationMemory, ConversationState, JuliaProfile } from "./types";
 import { getConversationFromSupabase, upsertSupabase } from "../storage/supabase";
 import { logError } from "../logger";
 
 type ConversationRecord = {
   state: ConversationState;
   profile: JuliaProfile;
+  memory: ConversationMemory;
   updatedAt: string;
 };
 
@@ -21,21 +22,38 @@ function conversationKey(tenantId: string, phone: string) {
 }
 
 export async function getConversationState(profile: JuliaProfile): Promise<ConversationState> {
-  const localState = conversations.get(conversationKey(profile.tenant.id, profile.phone))?.state;
-  if (localState) return localState;
+  return (await getConversationContext(profile)).state;
+}
+
+export async function getConversationContext(profile: JuliaProfile): Promise<{
+  state: ConversationState;
+  memory: ConversationMemory;
+}> {
+  const local = conversations.get(conversationKey(profile.tenant.id, profile.phone));
+  if (local) {
+    return {
+      state: local.state,
+      memory: local.memory
+    };
+  }
 
   try {
     const row = await getConversationFromSupabase(profile.tenant.id, profile.phone);
     const state = row?.state;
+    const memory = toConversationMemory(row?.memory_json);
 
     if (isConversationState(state)) {
       conversations.set(conversationKey(profile.tenant.id, profile.phone), {
         state,
         profile,
+        memory,
         updatedAt: new Date().toISOString()
       });
 
-      return state;
+      return {
+        state,
+        memory
+      };
     }
   } catch (error) {
     logError("conversation_read_error", error, {
@@ -44,19 +62,33 @@ export async function getConversationState(profile: JuliaProfile): Promise<Conve
     });
   }
 
-  return "new";
+  return {
+    state: "new",
+    memory: {}
+  };
 }
 
-export function saveConversationState(profile: JuliaProfile, state: ConversationState) {
+export function saveConversationState(
+  profile: JuliaProfile,
+  state: ConversationState,
+  memoryPatch: Partial<ConversationMemory> = {}
+) {
   const updatedAt = new Date().toISOString();
+  const key = conversationKey(profile.tenant.id, profile.phone);
+  const previous = conversations.get(key);
+  const memory = {
+    ...(previous?.memory ?? {}),
+    ...memoryPatch
+  };
 
-  conversations.set(conversationKey(profile.tenant.id, profile.phone), {
+  conversations.set(key, {
     state,
     profile,
+    memory,
     updatedAt
   });
 
-  void persistConversationState(profile, state, updatedAt);
+  void persistConversationState(profile, state, memory, updatedAt);
 
   return state;
 }
@@ -95,7 +127,12 @@ export function enqueueIncomingMessage(
   };
 }
 
-async function persistConversationState(profile: JuliaProfile, state: ConversationState, updatedAt: string) {
+async function persistConversationState(
+  profile: JuliaProfile,
+  state: ConversationState,
+  memory: ConversationMemory,
+  updatedAt: string
+) {
   try {
     await upsertSupabase(
       "conversations",
@@ -109,6 +146,7 @@ async function persistConversationState(profile: JuliaProfile, state: Conversati
           city: profile.city,
           tenantName: profile.tenant.brandName
         },
+        memory_json: memory,
         last_message_at: updatedAt,
         updated_at: updatedAt
       },
@@ -121,6 +159,36 @@ async function persistConversationState(profile: JuliaProfile, state: Conversati
       state
     });
   }
+}
+
+function toConversationMemory(value: unknown): ConversationMemory {
+  if (!isRecord(value)) return {};
+
+  return {
+    diagnosticAnswer: stringOrUndefined(value.diagnosticAnswer),
+    businessStatus: toBusinessStatus(value.businessStatus),
+    pricingRaw: stringOrUndefined(value.pricingRaw),
+    monthlyGoalRaw: stringOrUndefined(value.monthlyGoalRaw),
+    onboardingStage: toOnboardingStage(value.onboardingStage)
+  };
+}
+
+function toBusinessStatus(value: unknown): ConversationMemory["businessStatus"] {
+  return value === "active_mei" || value === "starting_mei" || value === "unknown" ? value : undefined;
+}
+
+function toOnboardingStage(value: unknown): ConversationMemory["onboardingStage"] {
+  return ["diagnostic_answered", "mei_status", "pricing", "monthly_goal", "done"].includes(String(value))
+    ? (value as ConversationMemory["onboardingStage"])
+    : undefined;
+}
+
+function stringOrUndefined(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function isConversationState(value: unknown): value is ConversationState {

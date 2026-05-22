@@ -1,9 +1,13 @@
 import { logAuditEvent } from "./audit";
-import { getConversationState, saveConversationState } from "./conversation";
+import { getConversationContext, saveConversationState } from "./conversation";
 import { executeTool } from "./tools";
-import type { ConversationState, JuliaTurnInput, JuliaTurnOutput, ToolCall } from "./types";
+import type { ConversationMemory, ConversationState, JuliaTurnInput, JuliaTurnOutput, ToolCall } from "./types";
 
 const JULIA_MAX_STEPS = 8;
+
+type JuliaDecision = Pick<JuliaTurnOutput, "answer" | "state" | "objective"> & {
+  memoryPatch?: Partial<ConversationMemory>;
+};
 
 export async function runJuliaTurn(input: JuliaTurnInput, maxSteps = JULIA_MAX_STEPS): Promise<JuliaTurnOutput> {
   const runId = crypto.randomUUID();
@@ -59,19 +63,20 @@ export async function runJuliaTurn(input: JuliaTurnInput, maxSteps = JULIA_MAX_S
     );
   }
 
-  const currentState = await getConversationState(input);
-  const next = await decideNextJuliaStep(input, currentState, normalizedText, runId, 1);
+  const context = await getConversationContext(input);
+  const next = await decideNextJuliaStep(input, context.state, context.memory, normalizedText, runId, 1);
 
-  return reply(input, runId, next.state, next.objective, next.answer, 1, startedAt);
+  return reply(input, runId, next.state, next.objective, next.answer, 1, startedAt, next.memoryPatch);
 }
 
 async function decideNextJuliaStep(
   input: JuliaTurnInput,
   state: ConversationState,
+  memory: ConversationMemory,
   normalizedText: string,
   runId: string,
   stepNumber: number
-): Promise<Pick<JuliaTurnOutput, "answer" | "state" | "objective">> {
+): Promise<JuliaDecision> {
   logAuditEvent({
     type: "agent_step",
     tenant: input.tenant,
@@ -81,7 +86,8 @@ async function decideNextJuliaStep(
     stepNumber,
     payload: {
       state,
-      normalizedText
+      normalizedText,
+      memory
     }
   });
 
@@ -114,7 +120,7 @@ async function decideNextJuliaStep(
       return {
         state: "permission_sent",
         objective: "aguardar permissão clara",
-        answer: "Sem pressa. Quando puder, me responde com \"pode\" que eu te explico rapidinho."
+        answer: 'Sem pressa. Quando puder, me responde com "pode" que eu te explico rapidinho.'
       };
     }
 
@@ -138,14 +144,71 @@ async function decideNextJuliaStep(
       return {
         state: "onboarding",
         objective: "continuar onboarding de MEI ativo",
-        answer: "Perfeito. Então vamos organizar em cima do que você já faz hoje.\n\nQuanto você costuma cobrar por serviço ou pacote?"
+        answer: "Perfeito. Então vamos organizar em cima do que você já faz hoje.\n\nQuanto você costuma cobrar por serviço ou pacote?",
+        memoryPatch: {
+          diagnosticAnswer: input.text,
+          businessStatus: "active_mei",
+          onboardingStage: "pricing"
+        }
       };
     }
 
     return {
       state: "onboarding",
       objective: "iniciar onboarding leve",
-      answer: "Boa, entendi.\n\nPara eu te acompanhar direito, me diz uma coisa: hoje você já tem MEI aberto ou ainda está se organizando para abrir?"
+      answer: "Boa, entendi.\n\nPara eu te acompanhar direito, me diz uma coisa: hoje você já tem MEI aberto ou ainda está se organizando para abrir?",
+      memoryPatch: {
+        diagnosticAnswer: input.text,
+        onboardingStage: "mei_status"
+      }
+    };
+  }
+
+  if (state === "onboarding" && hasOpenMei(normalizedText)) {
+    return {
+      state: "onboarding",
+      objective: "continuar onboarding de MEI ativo",
+      answer: "Perfeito. Então vamos organizar em cima do que você já faz hoje.\n\nQuanto você costuma cobrar por serviço ou pacote?",
+      memoryPatch: {
+        businessStatus: "active_mei",
+        onboardingStage: "pricing"
+      }
+    };
+  }
+
+  if (state === "onboarding" && isStartingMei(normalizedText)) {
+    return {
+      state: "onboarding",
+      objective: "continuar onboarding de quem vai abrir MEI",
+      answer: "Entendi. Então vamos organizar do começo, sem atropelar.\n\nVocê já tem uma ideia de quanto quer faturar por mês com esse trabalho?",
+      memoryPatch: {
+        businessStatus: "starting_mei",
+        onboardingStage: "monthly_goal"
+      }
+    };
+  }
+
+  if (state === "onboarding" && memory.onboardingStage === "pricing") {
+    return {
+      state: "onboarding",
+      objective: "salvar preço informado e pedir meta mensal",
+      answer: "Anotei.\n\nE olhando para o mês, quanto você gostaria que sobrasse para você depois dos custos?",
+      memoryPatch: {
+        pricingRaw: input.text,
+        onboardingStage: "monthly_goal"
+      }
+    };
+  }
+
+  if (state === "onboarding" && memory.onboardingStage === "monthly_goal") {
+    return {
+      state: "daily_checkin",
+      objective: "salvar meta inicial e iniciar acompanhamento",
+      answer: 'Fechado, anotei aqui.\n\nA partir de agora eu consigo te acompanhar no dia a dia. Quando tiver uma entrada ou gasto do negócio, pode me mandar em linguagem normal, tipo: "recebi R$ 150 hoje" ou "paguei R$ 40 de material".',
+      memoryPatch: {
+        monthlyGoalRaw: input.text,
+        onboardingStage: "done"
+      }
     };
   }
 
@@ -154,14 +217,6 @@ async function decideNextJuliaStep(
       state: "entry_capture",
       objective: "capturar lançamento financeiro",
       answer: "Anotei a ideia do lançamento. Para salvar certinho, me confirma: isso foi uma entrada ou um gasto do negócio?"
-    };
-  }
-
-  if (state === "onboarding" && hasOpenMei(normalizedText)) {
-    return {
-      state: "onboarding",
-      objective: "continuar onboarding de MEI ativo",
-      answer: "Perfeito. Então vamos organizar em cima do que você já faz hoje.\n\nQuanto você costuma cobrar por serviço ou pacote?"
     };
   }
 
@@ -179,9 +234,23 @@ function reply(
   objective: string,
   answer: string,
   stepsUsed: number,
-  startedAt: number
+  startedAt: number,
+  memoryPatch: Partial<ConversationMemory> = {}
 ): JuliaTurnOutput {
-  saveConversationState(input, state);
+  saveConversationState(input, state, memoryPatch);
+
+  if (Object.keys(memoryPatch).length > 0) {
+    logAuditEvent({
+      type: "conversation_memory_updated",
+      tenant: input.tenant,
+      phone: input.phone,
+      messageId: input.messageId,
+      runId,
+      payload: {
+        memoryPatch
+      }
+    });
+  }
 
   logAuditEvent({
     type: "agent_run_completed",
@@ -233,6 +302,10 @@ function looksLikeEntry(text: string) {
 
 function hasOpenMei(text: string) {
   return /\b(ja tenho mei|tenho mei|mei aberto|ja sou mei|sou mei)\b/.test(text);
+}
+
+function isStartingMei(text: string) {
+  return /\b(vou abrir|quero abrir|nao tenho mei|ainda nao|estou abrindo|pretendo abrir)\b/.test(text);
 }
 
 async function getSegmentPainAndQuestionMessage(input: JuliaTurnInput, runId: string, stepNumber: number) {

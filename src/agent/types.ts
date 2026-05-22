@@ -68,6 +68,14 @@ export type JuliaProfile = {
   city?: string;
 };
 
+export type ConversationMemory = {
+  diagnosticAnswer?: string;
+  businessStatus?: "active_mei" | "starting_mei" | "unknown";
+  pricingRaw?: string;
+  monthlyGoalRaw?: string;
+  onboardingStage?: "diagnostic_answered" | "mei_status" | "pricing" | "monthly_goal" | "done";
+};
+
 export type JuliaTurnInput = JuliaProfile & {
   text: string;
   messageId?: string;
@@ -95,6 +103,7 @@ export type AuditEventType =
   | "webhook_received"
   | "webhook_ignored"
   | "contact_profile_loaded"
+  | "conversation_memory_updated"
   | "message_buffered"
   | "message_ready"
   | "agent_run_started"

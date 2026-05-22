@@ -19,7 +19,14 @@ const profile = {
   city: "Taubaté"
 };
 
-const messages = ["oi", "pode falar", "uso mais o WhatsApp mesmo", "já tenho MEI aberto", "recebi R$ 350 de uma festa hoje"];
+const messages = [
+  "oi",
+  "pode falar",
+  "uso mais o WhatsApp mesmo",
+  "já tenho MEI aberto",
+  "costumo cobrar R$ 350 por festa",
+  "quero que sobre uns R$ 4.000 por mês"
+];
 
 async function main() {
   clearAuditEvents();
