@@ -1,4 +1,5 @@
 import type { AuditEvent, AuditEventType, Tenant, ToolName } from "./types";
+import { insertSupabase } from "../storage/supabase";
 
 type AuditInput = {
   type: AuditEventType;
@@ -28,7 +29,10 @@ export function logAuditEvent(input: AuditInput): AuditEvent {
   };
 
   auditEvents.push(event);
-  console.log(JSON.stringify({ audit: event }));
+  if (process.env.AUDIT_STDOUT !== "false") {
+    console.log(JSON.stringify({ audit: event }));
+  }
+  void persistAuditEvent(event);
 
   return event;
 }
@@ -39,4 +43,26 @@ export function getAuditEvents() {
 
 export function clearAuditEvents() {
   auditEvents.length = 0;
+}
+
+async function persistAuditEvent(event: AuditEvent) {
+  try {
+    await insertSupabase("audit_events", {
+      id: event.id,
+      tenant_id: event.tenantId,
+      phone: event.phone,
+      message_id: event.messageId,
+      run_id: event.runId,
+      type: event.type,
+      payload_json: event.payload,
+      created_at: event.createdAt
+    });
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        auditPersistError: error instanceof Error ? error.message : "Erro inesperado ao persistir audit event",
+        eventId: event.id
+      })
+    );
+  }
 }

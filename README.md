@@ -79,6 +79,8 @@ PORT=3000
 EVOLUTION_API_URL=https://sua-evolution-api.com
 EVOLUTION_API_KEY=sua-chave-aqui
 EVOLUTION_DRY_RUN=true
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
 ```
 
 Com `EVOLUTION_DRY_RUN=true`, a Julia processa tudo e registra logs, mas não envia mensagem real.

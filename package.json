@@ -7,10 +7,11 @@
     "dev": "tsx src/server.ts",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
-    "simulate:julia": "tsx src/agent/simulate-julia.ts",
-    "test:webhook": "tsx src/webhook/test-evolution.ts"
+    "simulate:julia": "cross-env AUDIT_STDOUT=false tsx src/agent/simulate-julia.ts",
+    "test:webhook": "cross-env AUDIT_STDOUT=false tsx src/webhook/test-evolution.ts"
   },
   "dependencies": {
+    "cross-env": "^7.0.3",
     "tsx": "^4.20.6"
   },
   "devDependencies": {

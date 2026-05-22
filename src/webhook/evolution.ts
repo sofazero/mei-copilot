@@ -3,6 +3,7 @@ import { logAuditEvent } from "../agent/audit";
 import { enqueueIncomingMessage } from "../agent/conversation";
 import { createDeliveryPlan } from "../agent/delivery";
 import type { Tenant } from "../agent/types";
+import { upsertSupabase } from "../storage/supabase";
 import { sendEvolutionMessage, sendEvolutionPresence } from "./delivery";
 
 type EvolutionWebhookPayload = {
@@ -92,6 +93,8 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
     return { ignored: true };
   }
 
+  void persistContact(tenant, phone);
+
   const bufferResult = enqueueIncomingMessage(
     {
       tenant,
@@ -124,6 +127,32 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
     partsCount: bufferResult.partsCount,
     waitMs: bufferResult.waitMs
   };
+}
+
+async function persistContact(tenant: Tenant, phone: string) {
+  try {
+    const now = new Date().toISOString();
+
+    await upsertSupabase(
+      "contacts",
+      {
+        tenant_id: tenant.id,
+        tenant_name: tenant.brandName,
+        phone,
+        status: "active",
+        updated_at: now
+      },
+      "tenant_id,phone"
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        contactPersistError: error instanceof Error ? error.message : "Erro inesperado ao persistir contato",
+        tenantId: tenant.id,
+        phone
+      })
+    );
+  }
 }
 
 async function processBufferedMessage(input: { tenant: Tenant; phone: string; text: string; messageId?: string }) {

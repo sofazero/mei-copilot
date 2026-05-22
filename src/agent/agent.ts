@@ -59,7 +59,7 @@ export async function runJuliaTurn(input: JuliaTurnInput, maxSteps = JULIA_MAX_S
     );
   }
 
-  const currentState = getConversationState(input);
+  const currentState = await getConversationState(input);
   const next = await decideNextJuliaStep(input, currentState, normalizedText, runId, 1);
 
   return reply(input, runId, next.state, next.objective, next.answer, 1, startedAt);
