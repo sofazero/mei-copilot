@@ -188,6 +188,9 @@ function toConversationMemory(value: unknown): ConversationMemory {
     diagnosticAnswer: stringOrUndefined(value.diagnosticAnswer),
     businessStatus: toBusinessStatus(value.businessStatus),
     pricingRaw: stringOrUndefined(value.pricingRaw),
+    variableCostRaw: stringOrUndefined(value.variableCostRaw),
+    fixedCostsRaw: stringOrUndefined(value.fixedCostsRaw),
+    productiveUnitsRaw: stringOrUndefined(value.productiveUnitsRaw),
     monthlyGoalRaw: stringOrUndefined(value.monthlyGoalRaw),
     onboardingStage: toOnboardingStage(value.onboardingStage)
   };

@@ -30,6 +30,16 @@ export type AgenticLlmDecision =
       objective: string;
       period: "today" | "month";
       memoryPatch?: Partial<ConversationMemory>;
+    }
+  | {
+      action: "calculate_price";
+      state: ConversationState;
+      objective: string;
+      monthlyGoal: number;
+      fixedCosts: number;
+      variableCost: number;
+      productiveUnits: number;
+      memoryPatch?: Partial<ConversationMemory>;
     };
 
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
@@ -197,6 +207,33 @@ function validateDecision(value: Record<string, unknown> | null, sourceText: str
     };
   }
 
+  if (action === "calculate_price") {
+    const monthlyGoal = numberValue(value.monthlyGoal);
+    const fixedCosts = numberValue(value.fixedCosts) ?? 0;
+    const variableCost = numberValue(value.variableCost) ?? 0;
+    const productiveUnits = numberValue(value.productiveUnits);
+
+    if (
+      monthlyGoal === undefined ||
+      productiveUnits === undefined ||
+      monthlyGoal <= 0 ||
+      productiveUnits <= 0
+    ) {
+      return null;
+    }
+
+    return {
+      action,
+      state,
+      objective,
+      monthlyGoal,
+      fixedCosts,
+      variableCost,
+      productiveUnits,
+      memoryPatch
+    };
+  }
+
   if (action === "save_entries" && Array.isArray(value.entries)) {
     const entries = value.entries
       .map((entry) => validateEntry(entry, sourceText))
@@ -248,12 +285,18 @@ function toMemoryPatch(value: unknown): Partial<ConversationMemory> | undefined 
   const patch: Partial<ConversationMemory> = {};
   const diagnosticAnswer = stringValue(value.diagnosticAnswer);
   const pricingRaw = stringValue(value.pricingRaw);
+  const variableCostRaw = stringValue(value.variableCostRaw);
+  const fixedCostsRaw = stringValue(value.fixedCostsRaw);
+  const productiveUnitsRaw = stringValue(value.productiveUnitsRaw);
   const monthlyGoalRaw = stringValue(value.monthlyGoalRaw);
   const businessStatus = toBusinessStatus(value.businessStatus);
   const onboardingStage = toOnboardingStage(value.onboardingStage);
 
   if (diagnosticAnswer) patch.diagnosticAnswer = diagnosticAnswer;
   if (pricingRaw) patch.pricingRaw = pricingRaw;
+  if (variableCostRaw) patch.variableCostRaw = variableCostRaw;
+  if (fixedCostsRaw) patch.fixedCostsRaw = fixedCostsRaw;
+  if (productiveUnitsRaw) patch.productiveUnitsRaw = productiveUnitsRaw;
   if (monthlyGoalRaw) patch.monthlyGoalRaw = monthlyGoalRaw;
   if (businessStatus) patch.businessStatus = businessStatus;
   if (onboardingStage) patch.onboardingStage = onboardingStage;
@@ -290,6 +333,19 @@ function toOnboardingStage(value: unknown): ConversationMemory["onboardingStage"
 
 function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function numberValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+
+  const normalized = value
+    .trim()
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+    .replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

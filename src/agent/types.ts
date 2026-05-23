@@ -90,6 +90,9 @@ export type ConversationMemory = {
   diagnosticAnswer?: string;
   businessStatus?: "active_mei" | "starting_mei" | "unknown";
   pricingRaw?: string;
+  variableCostRaw?: string;
+  fixedCostsRaw?: string;
+  productiveUnitsRaw?: string;
   monthlyGoalRaw?: string;
   onboardingStage?: "diagnostic_answered" | "mei_status" | "pricing" | "monthly_goal" | "category_setup" | "done";
 };

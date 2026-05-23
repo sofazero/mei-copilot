@@ -119,6 +119,52 @@ async function applyAgenticDecision(
     return reply(input, runId, next.state, next.objective, next.answer, 1, startedAt, next.memoryPatch);
   }
 
+  if (decision.action === "calculate_price") {
+    const result = await executeTool(
+      {
+        id: crypto.randomUUID(),
+        name: "calculate_price",
+        input: {
+          monthlyGoal: decision.monthlyGoal,
+          fixedCosts: decision.fixedCosts,
+          variableCost: decision.variableCost,
+          productiveUnits: decision.productiveUnits
+        }
+      },
+      {
+        tenant: input.tenant,
+        phone: input.phone,
+        runId,
+        stepNumber
+      }
+    );
+
+    return reply(
+      input,
+      runId,
+      "daily_checkin",
+      decision.objective,
+      buildPriceCalculationAnswer(result.result),
+      1,
+      startedAt
+    );
+  }
+
+  if (decision.action === "answer" && asksForPricing(normalizeText(input.text)) && isGenericPricingAnswer(decision.answer)) {
+    return reply(
+      input,
+      runId,
+      "onboarding",
+      "iniciar precificação prática",
+      buildPricingFirstQuestion(input),
+      1,
+      startedAt,
+      {
+        onboardingStage: "pricing"
+      }
+    );
+  }
+
   return reply(input, runId, decision.state, decision.objective, decision.answer, 1, startedAt, decision.memoryPatch);
 }
 
@@ -272,6 +318,17 @@ async function decideNextJuliaStep(
       answer: 'Perfeito. Vou organizar assim por trás.\n\nNão precisa decorar essas categorias. Pode me mandar do seu jeito, tipo: "recebi R$ 350 do kit unicórnio" ou "gastei R$ 40 em balões".\n\nEu classifico e, se ficar em dúvida, te pergunto.',
       memoryPatch: {
         onboardingStage: "done"
+      }
+    };
+  }
+
+  if (asksForPricing(normalizedText)) {
+    return {
+      state: "onboarding",
+      objective: "iniciar precificação prática",
+      answer: buildPricingFirstQuestion(input),
+      memoryPatch: {
+        onboardingStage: "pricing"
       }
     };
   }
@@ -683,6 +740,31 @@ async function getFinancialSummary(
   };
 }
 
+function buildPriceCalculationAnswer(result: unknown) {
+  if (!isRecord(result) || typeof result.minimumPrice !== "number") {
+    return "Tentei calcular o preço, mas faltou algum número importante.\n\nMe mande assim: custo por kit, custos fixos do mês, meta para sobrar e quantos kits você espera alugar no mês.";
+  }
+
+  const monthlyGoal = Number(result.monthlyGoal) || 0;
+  const fixedCosts = Number(result.fixedCosts) || 0;
+  const variableCost = Number(result.variableCost) || 0;
+  const productiveUnits = Number(result.productiveUnits) || 1;
+  const minimumPrice = Number(result.minimumPrice);
+
+  return [
+    "Fiz a conta com esses números:",
+    "",
+    `Meta para sobrar no mês: ${formatMoney(monthlyGoal)}`,
+    `Custos fixos do mês: ${formatMoney(fixedCosts)}`,
+    `Custo por serviço/pacote: ${formatMoney(variableCost)}`,
+    `Quantidade prevista no mês: ${productiveUnits}`,
+    "",
+    `Preço mínimo sugerido: *${formatMoney(minimumPrice)} por serviço/pacote*`,
+    "",
+    "Esse é um ponto de partida. Se você me disser quanto cobra hoje, eu comparo com esse mínimo e te ajudo a ajustar sem chute."
+  ].join("\n");
+}
+
 function summarizeRows(rows: unknown[]) {
   const summary = {
     income: 0,
@@ -864,6 +946,25 @@ function sanitizeWhatsAppText(text: string) {
 
 function asksForFinancialSummary(text: string) {
   return /\b(como foi|resumo|quanto sobrou|saldo|fechou|resultado)\b/.test(text);
+}
+
+function asksForPricing(text: string) {
+  return /\b(precificar|precificacao|preco|preco minimo|quanto cobrar|orcamento|cobrar)\b/.test(text);
+}
+
+function isGenericPricingAnswer(answer: string) {
+  const text = normalizeText(answer);
+  return (
+    text.includes("precisamos considerar") ||
+    text.includes("custos dos itens") ||
+    text.includes("margem de lucro") ||
+    text.includes("podemos comecar por ai")
+  );
+}
+
+function buildPricingFirstQuestion(input: JuliaTurnInput) {
+  const activity = input.activity ? ` de ${input.activity}` : "";
+  return `Vamos calcular sem chute.\n\nPara começar: em média, quanto você gasta para montar e entregar um serviço/pacote${activity}? Pode ser um valor aproximado.`;
 }
 
 function asksForMonthlySummary(text: string) {

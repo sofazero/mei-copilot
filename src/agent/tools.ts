@@ -338,12 +338,14 @@ async function getDiagnostic(tenantId: string, phone: string) {
 async function calculatePrice(input: Record<string, unknown>) {
   const monthlyGoal = numberValue(input.monthlyGoal) ?? 0;
   const fixedCosts = numberValue(input.fixedCosts) ?? 0;
+  const variableCost = numberValue(input.variableCost) ?? 0;
   const productiveUnits = numberValue(input.productiveUnits) ?? 1;
-  const minimumPrice = (monthlyGoal + fixedCosts) / productiveUnits;
+  const minimumPrice = variableCost + (monthlyGoal + fixedCosts) / productiveUnits;
 
   return {
     monthlyGoal,
     fixedCosts,
+    variableCost,
     productiveUnits,
     minimumPrice: Number.isFinite(minimumPrice) ? Math.ceil(minimumPrice) : null
   };
