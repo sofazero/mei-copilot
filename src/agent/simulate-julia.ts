@@ -26,7 +26,8 @@ const messages = [
   "já tenho MEI aberto",
   "costumo cobrar R$ 350 por festa",
   "quero que sobre uns R$ 4.000 por mês",
-  "Hoje recebi 150,00 e gastei 40 de material",
+  "pode ser assim",
+  "Hoje recebi 350,00 do kit e 90,00 de balões e gastei 40 de material",
   "como foi hoje?",
   "quanto sobrou esse mês?"
 ];

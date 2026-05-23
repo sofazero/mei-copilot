@@ -47,6 +47,7 @@ export type FinancialEntryType = "income" | "expense";
 export type FinancialEntryInput = {
   type: FinancialEntryType;
   amount: number;
+  entryGroup: "receitas" | "despesas_variaveis" | "despesas_fixas";
   category: string;
   description?: string;
   sourceText: string;
@@ -84,7 +85,7 @@ export type ConversationMemory = {
   businessStatus?: "active_mei" | "starting_mei" | "unknown";
   pricingRaw?: string;
   monthlyGoalRaw?: string;
-  onboardingStage?: "diagnostic_answered" | "mei_status" | "pricing" | "monthly_goal" | "done";
+  onboardingStage?: "diagnostic_answered" | "mei_status" | "pricing" | "monthly_goal" | "category_setup" | "done";
 };
 
 export type JuliaTurnInput = JuliaProfile & {

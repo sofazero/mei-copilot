@@ -209,11 +209,22 @@ async function decideNextJuliaStep(
 
   if (state === "onboarding" && memory.onboardingStage === "monthly_goal") {
     return {
-      state: "daily_checkin",
-      objective: "salvar meta inicial e iniciar acompanhamento",
-      answer: 'Fechado, anotei aqui.\n\nA partir de agora eu consigo te acompanhar no dia a dia. Quando tiver uma entrada ou gasto do negócio, pode me mandar em linguagem normal, tipo: "recebi R$ 150 hoje" ou "paguei R$ 40 de material".',
+      state: "onboarding",
+      objective: "salvar meta inicial e sugerir categorias",
+      answer: buildCategorySetupMessage(input),
       memoryPatch: {
         monthlyGoalRaw: input.text,
+        onboardingStage: "category_setup"
+      }
+    };
+  }
+
+  if (state === "onboarding" && memory.onboardingStage === "category_setup") {
+    return {
+      state: "daily_checkin",
+      objective: "confirmar categorias e iniciar acompanhamento",
+      answer: 'Perfeito. Vou organizar assim por trás.\n\nNão precisa decorar essas categorias. Pode me mandar do seu jeito, tipo: "recebi R$ 350 do kit unicórnio" ou "gastei R$ 40 em balões".\n\nEu classifico e, se ficar em dúvida, te pergunto.',
+      memoryPatch: {
         onboardingStage: "done"
       }
     };
@@ -261,6 +272,8 @@ function reply(
   startedAt: number,
   memoryPatch: Partial<ConversationMemory> = {}
 ): JuliaTurnOutput {
+  const cleanAnswer = sanitizeWhatsAppText(answer);
+
   saveConversationState(input, state, memoryPatch);
 
   if (Object.keys(memoryPatch).length > 0) {
@@ -285,14 +298,14 @@ function reply(
     payload: {
       state,
       objective,
-      answer,
+      answer: cleanAnswer,
       stepsUsed,
       durationMs: Date.now() - startedAt
     }
   });
 
   return {
-    answer,
+    answer: cleanAnswer,
     state,
     objective,
     stepsUsed,
@@ -391,25 +404,38 @@ async function saveFinancialEntries(
 }
 
 function extractFinancialEntries(text: string): FinancialEntryInput[] {
+  let lastType: FinancialEntryInput["type"] | null = null;
+
   return text
     .split(/\s+e\s+|;|\n/gi)
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((clause) => parseFinancialEntry(clause, text))
+    .map((clause) => {
+      const entry = parseFinancialEntry(clause, text, lastType);
+      if (entry) lastType = entry.type;
+      return entry;
+    })
     .filter((entry): entry is FinancialEntryInput => Boolean(entry));
 }
 
-function parseFinancialEntry(clause: string, sourceText: string): FinancialEntryInput | null {
+function parseFinancialEntry(
+  clause: string,
+  sourceText: string,
+  fallbackType: FinancialEntryInput["type"] | null = null
+): FinancialEntryInput | null {
   const normalized = normalizeText(clause);
-  const type = detectEntryType(normalized);
+  const type = detectEntryType(normalized) ?? fallbackType;
   const amount = extractAmount(clause);
 
   if (!type || !amount) return null;
 
+  const classification = inferEntryClassification(type, clause, sourceText);
+
   return {
     type,
     amount,
-    category: inferEntryCategory(type, clause, sourceText),
+    entryGroup: classification.entryGroup,
+    category: classification.category,
     description: extractEntryDescription(clause),
     sourceText
   };
@@ -432,37 +458,87 @@ function extractAmount(text: string) {
 function extractEntryDescription(text: string) {
   const withoutAmount = text
     .replace(/(?:r\$\s*)?\d+(?:[.,]\d{1,2})?/i, "")
-    .replace(/\b(hoje|recebi|entrou|ganhei|vendi|venda|entrada|gastei|paguei|comprei|compra|gasto|despesa|saida|de|com|em)\b/gi, " ")
+    .replace(/\b(hoje|recebi|entrou|ganhei|vendi|venda|entrada|gastei|paguei|comprei|compra|gasto|despesa|saida|de|do|da|dos|das|com|em)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
   return withoutAmount || undefined;
 }
 
-function inferEntryCategory(type: FinancialEntryInput["type"], clause: string, sourceText: string) {
+function inferEntryClassification(type: FinancialEntryInput["type"], clause: string, sourceText: string) {
+  const clauseText = normalizeText(clause);
   const text = normalizeText(`${clause} ${sourceText}`);
 
   if (type === "income") {
-    if (text.includes("festa") || text.includes("kit") || text.includes("atendimento") || text.includes("servico")) {
-      return "serviços/vendas";
+    if (clauseText.includes("entrega") || clauseText.includes("frete")) {
+      return { entryGroup: "receitas" as const, category: "entrega cobrada do cliente" };
     }
 
-    return "receita operacional";
+    if (clauseText.includes("sinal") || clauseText.includes("reserva") || clauseText.includes("adiantamento")) {
+      return { entryGroup: "receitas" as const, category: "sinal/reserva" };
+    }
+
+    if (
+      clauseText.includes("balao") ||
+      clauseText.includes("baloes") ||
+      clauseText.includes("adicional") ||
+      clauseText.includes("extra")
+    ) {
+      return { entryGroup: "receitas" as const, category: "adicionais" };
+    }
+
+    if (
+      clauseText.includes("festa") ||
+      clauseText.includes("kit") ||
+      clauseText.includes("atendimento") ||
+      clauseText.includes("servico")
+    ) {
+      return { entryGroup: "receitas" as const, category: "aluguel de kit" };
+    }
+
+    return { entryGroup: "receitas" as const, category: "receita operacional" };
   }
 
-  if (text.includes("material") || text.includes("peca") || text.includes("produto") || text.includes("estoque")) {
-    return "materiais";
+  if (text.includes("reposicao") || text.includes("repor") || text.includes("quebrou") || text.includes("peca")) {
+    return { entryGroup: "despesas_variaveis" as const, category: "reposição de itens" };
+  }
+
+  if (
+    text.includes("balao") ||
+    text.includes("baloes") ||
+    text.includes("descartavel") ||
+    text.includes("material") ||
+    text.includes("produto") ||
+    text.includes("estoque") ||
+    text.includes("embalagem")
+  ) {
+    return { entryGroup: "despesas_variaveis" as const, category: "materiais descartáveis" };
   }
 
   if (text.includes("entrega") || text.includes("frete") || text.includes("uber") || text.includes("combustivel")) {
-    return "transporte/entrega";
+    return { entryGroup: "despesas_variaveis" as const, category: "entrega/transporte" };
   }
 
-  if (text.includes("aluguel") || text.includes("energia") || text.includes("internet") || text.includes("telefone")) {
-    return "estrutura";
+  if (text.includes("limpeza") || text.includes("lavar") || text.includes("manutencao") || text.includes("conserto")) {
+    return { entryGroup: "despesas_variaveis" as const, category: "limpeza/manutenção" };
   }
 
-  return "despesas gerais";
+  if (text.includes("marketing") || text.includes("anuncio") || text.includes("instagram") || text.includes("trafego")) {
+    return { entryGroup: "despesas_fixas" as const, category: "marketing" };
+  }
+
+  if (
+    text.includes("aluguel") ||
+    text.includes("energia") ||
+    text.includes("internet") ||
+    text.includes("telefone") ||
+    text.includes("sistema") ||
+    text.includes("ferramenta")
+  ) {
+    return { entryGroup: "despesas_fixas" as const, category: "estrutura" };
+  }
+
+  return { entryGroup: "despesas_variaveis" as const, category: "outras despesas" };
 }
 
 function sumEntries(entries: FinancialEntryInput[], type: FinancialEntryInput["type"]) {
@@ -476,7 +552,7 @@ function buildEntrySummary(entries: FinancialEntryInput[], incomeTotal: number, 
     return `${label} de ${formatMoney(entry.amount)}${description} (${entry.category})`;
   });
 
-  return `Anotei aqui: ${joinHuman(parts)}.\n\nNo resumo de hoje, entrou ${formatMoney(incomeTotal)}, saiu ${formatMoney(expenseTotal)} e o saldo ficou ${formatMoney(balance)}.`;
+  return `Anotei aqui: ${joinHuman(parts)}.\n\n${buildFinancialSummaryAnswer("today", summarizeRows(entries))}`;
 }
 
 async function getFinancialSummary(
@@ -515,7 +591,7 @@ function summarizeRows(rows: unknown[]) {
   const summary = {
     income: 0,
     expense: 0,
-    categories: new Map<string, number>()
+    groups: new Map<string, { total: number; categories: Map<string, number> }>()
   };
 
   for (const row of rows) {
@@ -524,14 +600,25 @@ function summarizeRows(rows: unknown[]) {
     const amount = Number(row.amount);
     const type = row.type;
     const category = typeof row.category === "string" ? row.category : "sem categoria";
+    const entryGroup =
+      type === "income"
+        ? "receitas"
+        : typeof row.entryGroup === "string"
+          ? row.entryGroup
+          : typeof row.entry_group === "string"
+            ? row.entry_group
+            : inferGroupFromRow(type, category);
 
     if (!Number.isFinite(amount)) continue;
 
     if (type === "income") summary.income += amount;
     if (type === "expense") {
       summary.expense += amount;
-      summary.categories.set(category, (summary.categories.get(category) ?? 0) + amount);
     }
+
+    const group = getSummaryGroup(summary.groups, entryGroup);
+    group.total += amount;
+    group.categories.set(category, (group.categories.get(category) ?? 0) + amount);
   }
 
   return summary;
@@ -545,12 +632,138 @@ function buildFinancialSummaryAnswer(period: "today" | "month", summary: ReturnT
     return `Por enquanto, não tenho lançamentos salvos para ${label}.\n\nQuando tiver entrada ou gasto, pode me mandar em linguagem normal.`;
   }
 
-  const categoryText = [...summary.categories.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([category, amount]) => `${category}: ${formatMoney(amount)}`)
-    .join("\n");
+  return [
+    `Resumo de ${label}:`,
+    "",
+    formatGroupBlock("receitas", summary.groups),
+    "",
+    formatGroupBlock("despesas_variaveis", summary.groups),
+    "",
+    formatGroupBlock("despesas_fixas", summary.groups),
+    "",
+    `*Saldo ${period === "month" ? "do mês" : "do dia"}: ${formatMoney(balance)}*`
+  ].join("\n");
+}
 
-  return `Resumo de ${label}:\n\nEntradas: ${formatMoney(summary.income)}\nGastos: ${formatMoney(summary.expense)}\nSaldo: ${formatMoney(balance)}${categoryText ? `\n\nGastos por categoria:\n${categoryText}` : ""}`;
+function buildCategorySetupMessage(input: JuliaTurnInput) {
+  const segment = normalizeText(input.activity ?? "");
+  const isPartyKit = segment.includes("kit festa") || segment.includes("festa");
+
+  if (isPartyKit) {
+    return [
+      "Fechado, anotei aqui.",
+      "",
+      "Para deixar seus relatórios mais organizados, vou separar seus lançamentos assim:",
+      "",
+      "🟢 Receitas",
+      "• Aluguel de kit",
+      "• Sinal/reserva",
+      "• Entrega cobrada do cliente",
+      "• Adicionais",
+      "",
+      "🔴 Despesas variáveis",
+      "• Reposição de itens",
+      "• Materiais descartáveis",
+      "• Limpeza/manutenção",
+      "• Entrega/transporte",
+      "",
+      "🔴 Despesas fixas",
+      "• Estrutura",
+      "• Marketing",
+      "• Sistema/ferramentas",
+      "",
+      "Pode ser assim para começarmos?"
+    ].join("\n");
+  }
+
+  return [
+    "Fechado, anotei aqui.",
+    "",
+    "Para deixar seus relatórios mais organizados, vou separar seus lançamentos assim:",
+    "",
+    "🟢 Receitas",
+    "• Serviços/vendas",
+    "• Sinal/reserva",
+    "• Adicionais",
+    "",
+    "🔴 Despesas variáveis",
+    "• Materiais",
+    "• Entrega/transporte",
+    "• Embalagens",
+    "",
+    "🔴 Despesas fixas",
+    "• Estrutura",
+    "• Marketing",
+    "• Sistema/ferramentas",
+    "",
+    "Pode ser assim para começarmos?"
+  ].join("\n");
+}
+
+function formatGroupBlock(groupKey: string, groups: Map<string, { total: number; categories: Map<string, number> }>) {
+  const group = groups.get(groupKey) ?? { total: 0, categories: new Map<string, number>() };
+  const title = groupTitle(groupKey);
+  const lines = [`${groupIcon(groupKey)} *${title}: ${formatMoney(group.total)}*`];
+
+  for (const [category, amount] of [...group.categories.entries()].sort((a, b) => b[1] - a[1])) {
+    lines.push(`• ${capitalize(category)}: ${formatMoney(amount)}`);
+  }
+
+  return lines.join("\n");
+}
+
+function getSummaryGroup(groups: Map<string, { total: number; categories: Map<string, number> }>, rawGroup: string) {
+  const key = normalizeEntryGroup(rawGroup);
+  const existing = groups.get(key);
+  if (existing) return existing;
+
+  const group = {
+    total: 0,
+    categories: new Map<string, number>()
+  };
+
+  groups.set(key, group);
+  return group;
+}
+
+function inferGroupFromRow(type: unknown, category: string) {
+  if (type === "income") return "receitas";
+
+  const normalizedCategory = normalizeText(category);
+  if (
+    normalizedCategory.includes("estrutura") ||
+    normalizedCategory.includes("marketing") ||
+    normalizedCategory.includes("sistema") ||
+    normalizedCategory.includes("ferramenta")
+  ) {
+    return "despesas_fixas";
+  }
+
+  return "despesas_variaveis";
+}
+
+function normalizeEntryGroup(group: string) {
+  if (group === "receitas") return "receitas";
+  if (group === "despesas_fixas") return "despesas_fixas";
+  return "despesas_variaveis";
+}
+
+function groupTitle(group: string) {
+  if (group === "receitas") return "Receitas";
+  if (group === "despesas_fixas") return "Despesas fixas";
+  return "Despesas variáveis";
+}
+
+function groupIcon(group: string) {
+  return group === "receitas" ? "🟢" : "🔴";
+}
+
+function capitalize(text: string) {
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
+}
+
+function sanitizeWhatsAppText(text: string) {
+  return text.replace(/\*\*/g, "*").replace(/^#{1,6}\s+/gm, "");
 }
 
 function asksForFinancialSummary(text: string) {

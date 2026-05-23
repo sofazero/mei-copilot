@@ -9,6 +9,7 @@ type SupabaseWriteInput = {
 export type FinancialEntryRow = {
   type: "income" | "expense";
   amount: number | string;
+  entry_group?: string | null;
   category?: string | null;
   description?: string | null;
   occurred_at: string;
@@ -86,7 +87,7 @@ export async function getFinancialEntriesFromSupabase(tenantId: string, phone: s
   url.searchParams.set("tenant_id", `eq.${tenantId}`);
   url.searchParams.set("phone", `eq.${phone}`);
   url.searchParams.set("occurred_at", `gte.${periodStart(period)}`);
-  url.searchParams.set("select", "type,amount,category,description,occurred_at");
+  url.searchParams.set("select", "type,amount,entry_group,category,description,occurred_at");
   url.searchParams.set("order", "occurred_at.desc,created_at.desc");
 
   const response = await fetch(url, {
