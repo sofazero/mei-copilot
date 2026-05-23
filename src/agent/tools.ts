@@ -109,13 +109,6 @@ async function getSegmentPain(input: Record<string, unknown>) {
   const activity = stringValue(input.activity);
   const segment = normalizeText(activity ?? "");
 
-  if (segment.includes("kit festa") || segment.includes("festa")) {
-    return {
-      activity,
-      pain: "Nesse tipo de rotina, uma dor comum é controlar reserva, entrega, pagamento final e reposição de itens sem misturar tudo."
-    };
-  }
-
   if (segment.includes("manicure") || segment.includes("cabelo") || segment.includes("beleza")) {
     return {
       activity,
@@ -146,12 +139,6 @@ async function getSegmentPain(input: Record<string, unknown>) {
 async function getDiagnosticQuestion(input: Record<string, unknown>) {
   const activity = stringValue(input.activity);
   const segment = normalizeText(activity ?? "");
-
-  if (segment.includes("kit festa") || segment.includes("festa")) {
-    return {
-      question: "Hoje você controla suas reservas e pagamentos por onde: caderno, planilha, WhatsApp ou algum aplicativo?"
-    };
-  }
 
   if (segment.includes("manicure") || segment.includes("cabelo") || segment.includes("beleza")) {
     return {

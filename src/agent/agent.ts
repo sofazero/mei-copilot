@@ -191,10 +191,18 @@ async function decideNextJuliaStep(
   });
 
   if (state === "new") {
+    if (!input.activity) {
+      return {
+        state: "onboarding",
+        objective: "entender negócio sem contexto cadastrado",
+        answer: `Oi${input.name ? `, ${input.name}` : ""}. Tudo bem? Sou a Julia, assistente da ${input.tenant.brandName}.\n\nPara eu te ajudar melhor, me conta rapidinho: qual é o seu negócio hoje e como você ganha dinheiro com ele?`
+      };
+    }
+
     return {
-      state: "permission_sent",
-      objective: "pedir permissão para iniciar conversa",
-      answer: `Oi${input.name ? `, ${input.name}` : ""}. Tudo bem?\n\nMuito prazer, meu nome é Julia. Sou sua assessora pessoal MEI Saudável da ${input.tenant.brandName}.\n\nVocê tem uns minutinhos para falar comigo?`
+      state: "onboarding",
+      objective: "iniciar assessoria com contexto cadastrado",
+      answer: `Oi${input.name ? `, ${input.name}` : ""}. Tudo bem? Sou a Julia, assistente da ${input.tenant.brandName}.\n\nVi aqui que você trabalha com ${input.activity}. Posso te ajudar com organização do mês, preço, lucro líquido e registros do dia a dia.\n\nO que você quer olhar primeiro?`
     };
   }
 
@@ -211,6 +219,17 @@ async function decideNextJuliaStep(
       state: "human_review_needed",
       objective: "aguardar responsável humano",
       answer: `Esse ponto está com a ${input.tenant.brandName} para conferência. Enquanto isso, posso te ajudar com entradas, gastos e organização simples do mês.`
+    };
+  }
+
+  if (state === "onboarding" && !input.activity && !memory.diagnosticAnswer) {
+    return {
+      state: "onboarding",
+      objective: "guardar contexto inicial do negócio",
+      answer: "Legal, vou seguir por esse contexto.\n\nPara começar do jeito mais útil: você quer olhar primeiro preço, lucro líquido ou organização das entradas e gastos?",
+      memoryPatch: {
+        diagnosticAnswer: input.text
+      }
     };
   }
 
@@ -287,6 +306,18 @@ async function decideNextJuliaStep(
     };
   }
 
+  if (asksForFinancialSummary(normalizedText)) {
+    const period = asksForMonthlySummary(normalizedText) ? "month" : "today";
+    return getFinancialSummary(input, period, runId, stepNumber);
+  }
+
+  if ((state === "daily_checkin" || state === "entry_capture" || looksLikeActualDailyEntry(normalizedText)) && looksLikeEntry(normalizedText)) {
+    const entries = await extractFinancialEntriesForTurn(input, runId, stepNumber);
+    if (entries.length > 0) {
+      return saveFinancialEntries(input, entries, runId, stepNumber);
+    }
+  }
+
   if (state === "onboarding" && memory.onboardingStage === "pricing") {
     return {
       state: "onboarding",
@@ -315,7 +346,7 @@ async function decideNextJuliaStep(
     return {
       state: "daily_checkin",
       objective: "confirmar categorias e iniciar acompanhamento",
-      answer: 'Perfeito. Vou organizar assim por trás.\n\nNão precisa decorar essas categorias. Pode me mandar do seu jeito, tipo: "recebi R$ 350 do kit unicórnio" ou "gastei R$ 40 em balões".\n\nEu classifico e, se ficar em dúvida, te pergunto.',
+      answer: 'Perfeito. Vou organizar assim por trás.\n\nNão precisa decorar essas categorias. Pode me mandar do seu jeito, tipo: "recebi R$ 350 hoje" ou "gastei R$ 40 em material".\n\nEu classifico e, se ficar em dúvida, te pergunto.',
       memoryPatch: {
         onboardingStage: "done"
       }
@@ -333,16 +364,15 @@ async function decideNextJuliaStep(
     };
   }
 
-  if (asksForFinancialSummary(normalizedText)) {
-    const period = asksForMonthlySummary(normalizedText) ? "month" : "today";
-    return getFinancialSummary(input, period, runId, stepNumber);
-  }
-
-  if (state === "daily_checkin" || state === "entry_capture") {
-    const entries = await extractFinancialEntriesForTurn(input, runId, stepNumber);
-    if (entries.length > 0) {
-      return saveFinancialEntries(input, entries, runId, stepNumber);
-    }
+  if (asksForBusinessAdvice(normalizedText)) {
+    return {
+      state: "onboarding",
+      objective: "aprofundar assessoria do negócio",
+      answer: "Vamos organizar isso de um jeito prático.\n\nPara eu enxergar seu lucro líquido, me diga uma coisa: hoje você sabe mais ou menos quanto entra no mês e quanto sai de custo?",
+      memoryPatch: {
+        onboardingStage: "pricing"
+      }
+    };
   }
 
   if (looksLikeEntry(normalizedText)) {
@@ -483,6 +513,10 @@ function asksForHuman(text: string) {
 
 function looksLikeEntry(text: string) {
   return /\b(recebi|entrou|ganhei|vendi|gastei|paguei|comprei|pix|dinheiro|cartao|r\$)\b/.test(text);
+}
+
+function looksLikeActualDailyEntry(text: string) {
+  return /\b(hoje|ontem|agora|essa semana|esta semana|esse mes|este mes)\b/.test(text);
 }
 
 function hasOpenMei(text: string) {
@@ -631,41 +665,28 @@ function inferEntryClassification(type: FinancialEntryInput["type"], clause: str
       return { entryGroup: "receitas" as const, category: "sinal/reserva" };
     }
 
-    if (
-      clauseText.includes("balao") ||
-      clauseText.includes("baloes") ||
-      clauseText.includes("adicional") ||
-      clauseText.includes("extra")
-    ) {
+    if (clauseText.includes("adicional") || clauseText.includes("extra")) {
       return { entryGroup: "receitas" as const, category: "adicionais" };
     }
 
-    if (
-      clauseText.includes("festa") ||
-      clauseText.includes("kit") ||
-      clauseText.includes("atendimento") ||
-      clauseText.includes("servico")
-    ) {
-      return { entryGroup: "receitas" as const, category: "aluguel de kit" };
+    if (clauseText.includes("atendimento") || clauseText.includes("servico") || clauseText.includes("serviço")) {
+      return { entryGroup: "receitas" as const, category: "serviços" };
     }
 
     return { entryGroup: "receitas" as const, category: "receita operacional" };
   }
 
   if (text.includes("reposicao") || text.includes("repor") || text.includes("quebrou") || text.includes("peca")) {
-    return { entryGroup: "despesas_variaveis" as const, category: "reposição de itens" };
+    return { entryGroup: "despesas_variaveis" as const, category: "reposição/manutenção" };
   }
 
   if (
-    text.includes("balao") ||
-    text.includes("baloes") ||
-    text.includes("descartavel") ||
     text.includes("material") ||
     text.includes("produto") ||
     text.includes("estoque") ||
     text.includes("embalagem")
   ) {
-    return { entryGroup: "despesas_variaveis" as const, category: "materiais descartáveis" };
+    return { entryGroup: "despesas_variaveis" as const, category: "materiais" };
   }
 
   if (text.includes("entrega") || text.includes("frete") || text.includes("uber") || text.includes("combustivel")) {
@@ -756,10 +777,10 @@ function buildPriceCalculationAnswer(result: unknown) {
     "",
     `Meta para sobrar no mês: ${formatMoney(monthlyGoal)}`,
     `Custos fixos do mês: ${formatMoney(fixedCosts)}`,
-    `Custo por serviço/pacote: ${formatMoney(variableCost)}`,
+    `Custo por venda/produto/serviço: ${formatMoney(variableCost)}`,
     `Quantidade prevista no mês: ${productiveUnits}`,
     "",
-    `Preço mínimo sugerido: *${formatMoney(minimumPrice)} por serviço/pacote*`,
+    `Preço mínimo sugerido: *${formatMoney(minimumPrice)} por venda/produto/serviço*`,
     "",
     "Esse é um ponto de partida. Se você me disser quanto cobra hoje, eu comparo com esse mínimo e te ajudo a ajustar sem chute."
   ].join("\n");
@@ -824,40 +845,11 @@ function buildFinancialSummaryAnswer(period: "today" | "month", summary: ReturnT
 }
 
 function buildCategorySetupMessage(input: JuliaTurnInput) {
-  const segment = normalizeText(input.activity ?? "");
-  const isPartyKit = segment.includes("kit festa") || segment.includes("festa");
-
-  if (isPartyKit) {
-    return [
-      "Fechado, anotei aqui.",
-      "",
-      "Para deixar seus relatórios mais organizados, vou separar seus lançamentos assim:",
-      "",
-      "🟢 Receitas",
-      "• Aluguel de kit",
-      "• Sinal/reserva",
-      "• Entrega cobrada do cliente",
-      "• Adicionais",
-      "",
-      "🔴 Despesas variáveis",
-      "• Reposição de itens",
-      "• Materiais descartáveis",
-      "• Limpeza/manutenção",
-      "• Entrega/transporte",
-      "",
-      "🔴 Despesas fixas",
-      "• Estrutura",
-      "• Marketing",
-      "• Sistema/ferramentas",
-      "",
-      "Pode ser assim para começarmos?"
-    ].join("\n");
-  }
-
+  const activity = input.activity ? ` para ${input.activity}` : "";
   return [
     "Fechado, anotei aqui.",
     "",
-    "Para deixar seus relatórios mais organizados, vou separar seus lançamentos assim:",
+    `Para deixar seus relatórios mais organizados${activity}, vou começar separando assim:`,
     "",
     "🟢 Receitas",
     "• Serviços/vendas",
@@ -874,7 +866,7 @@ function buildCategorySetupMessage(input: JuliaTurnInput) {
     "• Marketing",
     "• Sistema/ferramentas",
     "",
-    "Pode ser assim para começarmos?"
+    "Pode ser assim para começarmos? Depois eu ajusto as categorias conforme seus lançamentos reais."
   ].join("\n");
 }
 
@@ -955,7 +947,11 @@ function asksForFinancialSummary(text: string) {
 }
 
 function asksForPricing(text: string) {
-  return /\b(precificar|precificacao|preco|preco minimo|quanto cobrar|orcamento|cobrar)\b/.test(text);
+  return /\b(precificar|precificacao|preco|preco minimo|quanto cobrar|orcamento|cobrar|cobrando|cobro certo|cobrando certo)\b/.test(text);
+}
+
+function asksForBusinessAdvice(text: string) {
+  return /\b(lucro|lucro liquido|lucratividade|organizar|assessoria|negocio|negócio|financeiro|sobrar|ganhar mais)\b/.test(text);
 }
 
 function isGenericPricingAnswer(answer: string) {
@@ -969,8 +965,8 @@ function isGenericPricingAnswer(answer: string) {
 }
 
 function buildPricingFirstQuestion(input: JuliaTurnInput) {
-  const activity = input.activity ? ` de ${input.activity}` : "";
-  return `Vamos calcular sem chute.\n\nPara começar: em média, quanto você gasta para montar e entregar um serviço/pacote${activity}? Pode ser um valor aproximado.`;
+  const activity = input.activity ? ` no seu trabalho com ${input.activity}` : "";
+  return `Vamos calcular sem chute.\n\nPara começar: em média, qual é o custo direto para entregar uma venda, produto ou serviço${activity}? Pode ser aproximado.`;
 }
 
 function removeRepeatedGreeting(text: string, name?: string) {
@@ -979,7 +975,7 @@ function removeRepeatedGreeting(text: string, name?: string) {
     `^(?:\\s*(?:oi|olá|ola|bom dia|boa tarde|boa noite)[,!\\.\\s]*(?:${escapedName})?[,!\\.\\s]*(?:tudo bem\\??\\s*)?)+`,
     "iu"
   );
-  return text.replace(greetingPattern, "").trimStart();
+  return text.replace(greetingPattern, "").replace(/^[?!.,\s]+/, "").trimStart();
 }
 
 function escapeRegExp(value: string) {
