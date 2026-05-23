@@ -1,6 +1,7 @@
 import { getConfig } from "../config";
 import { logError } from "../logger";
 import { logAuditEvent } from "./audit";
+import { FINANCIAL_EXTRACTION_SYSTEM_PROMPT } from "./prompts";
 import type { FinancialEntryInput, JuliaTurnInput } from "./types";
 
 type LlmEntry = {
@@ -57,16 +58,7 @@ export async function extractFinancialEntriesWithLlm(
         messages: [
           {
             role: "system",
-            content: [
-              "Você extrai lançamentos financeiros de mensagens de WhatsApp de MEIs.",
-              "Responda somente JSON válido, sem markdown.",
-              "Extraia apenas entradas e gastos claramente informados.",
-              "Se houver uma entrada e um gasto na mesma frase, retorne os dois lançamentos.",
-              "Use type income para receita e expense para despesa.",
-              "Use entryGroup receitas, despesas_variaveis ou despesas_fixas.",
-              "Para aluguel de kit festa, prefira categorias como aluguel de kit, sinal/reserva, adicionais, entrega cobrada do cliente, materiais descartáveis, reposição de itens, limpeza/manutenção, entrega/transporte, estrutura, marketing ou sistema/ferramentas.",
-              "Se estiver ambíguo, retorne entries vazio."
-            ].join(" ")
+            content: FINANCIAL_EXTRACTION_SYSTEM_PROMPT
           },
           {
             role: "user",
