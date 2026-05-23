@@ -322,7 +322,7 @@ function normalizeText(text: string) {
 }
 
 function isAcceptance(text: string) {
-  return /\b(sim|pode|posso|bora|vamos|ok|claro|fala|manda|tenho|tenho sim)\b/.test(text);
+  return /\b(sim|pode|posso|bora|vamos|ok|claro|fala|manda|tenho sim)\b/.test(text);
 }
 
 function isOptOut(text: string) {

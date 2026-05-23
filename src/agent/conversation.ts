@@ -178,7 +178,7 @@ function toBusinessStatus(value: unknown): ConversationMemory["businessStatus"] 
 }
 
 function toOnboardingStage(value: unknown): ConversationMemory["onboardingStage"] {
-  return ["diagnostic_answered", "mei_status", "pricing", "monthly_goal", "done"].includes(String(value))
+  return ["diagnostic_answered", "mei_status", "pricing", "monthly_goal", "category_setup", "done"].includes(String(value))
     ? (value as ConversationMemory["onboardingStage"])
     : undefined;
 }

@@ -126,7 +126,8 @@ export type AuditEventType =
   | "delivery_planned"
   | "presence_sent"
   | "presence_failed"
-  | "message_sent";
+  | "message_sent"
+  | "message_failed";
 
 export type AuditEvent = {
   id: string;

@@ -24,6 +24,8 @@ type EvolutionWebhookPayload = {
   };
 };
 
+const processingQueues = new Map<string, Promise<void>>();
+
 export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
   logAuditEvent({
     type: "webhook_received",
@@ -103,7 +105,7 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
     },
     text,
     (bufferedText) =>
-      processBufferedMessage({
+      enqueueBufferedProcessing({
         tenant,
         phone,
         text: bufferedText,
@@ -128,6 +130,28 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
     partsCount: bufferResult.partsCount,
     waitMs: bufferResult.waitMs
   };
+}
+
+function enqueueBufferedProcessing(input: { tenant: Tenant; phone: string; text: string; messageId?: string }) {
+  const key = `${input.tenant.id}:${input.phone}`;
+  const previous = processingQueues.get(key) ?? Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(() => processBufferedMessage(input))
+    .catch((error) => {
+      logError("buffered_message_processing_error", error, {
+        tenantId: input.tenant.id,
+        phone: input.phone,
+        messageId: input.messageId
+      });
+    })
+    .finally(() => {
+      if (processingQueues.get(key) === next) {
+        processingQueues.delete(key);
+      }
+    });
+
+  processingQueues.set(key, next);
 }
 
 async function persistContact(tenant: Tenant, phone: string) {
@@ -228,20 +252,35 @@ async function processBufferedMessage(input: { tenant: Tenant; phone: string; te
 
     await delay(message.typingDelayMs);
 
-    const sendResult = await sendEvolutionMessage(input.tenant, input.phone, message);
+    try {
+      const sendResult = await sendEvolutionMessage(input.tenant, input.phone, message);
 
-    logAuditEvent({
-      type: "message_sent",
-      tenant: input.tenant,
-      phone: input.phone,
-      messageId: input.messageId,
-      runId: output.runId,
-      payload: {
-        text: message.text,
-        typingDelayMs: message.typingDelayMs,
-        sendResult
-      }
-    });
+      logAuditEvent({
+        type: "message_sent",
+        tenant: input.tenant,
+        phone: input.phone,
+        messageId: input.messageId,
+        runId: output.runId,
+        payload: {
+          text: message.text,
+          typingDelayMs: message.typingDelayMs,
+          sendResult
+        }
+      });
+    } catch (error) {
+      logAuditEvent({
+        type: "message_failed",
+        tenant: input.tenant,
+        phone: input.phone,
+        messageId: input.messageId,
+        runId: output.runId,
+        payload: {
+          text: message.text,
+          typingDelayMs: message.typingDelayMs,
+          error: error instanceof Error ? error.message : "Erro inesperado ao enviar mensagem"
+        }
+      });
+    }
   }
 }
 

@@ -5,6 +5,7 @@ export type AppConfig = {
   evolutionDryRun: boolean;
   supabaseUrl?: string;
   supabaseServiceRoleKey?: string;
+  auditToken?: string;
 };
 
 export function getConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -14,7 +15,8 @@ export function getConfig(env: Record<string, string | undefined> = process.env)
     evolutionApiKey: stringValue(env.EVOLUTION_API_KEY),
     evolutionDryRun: env.EVOLUTION_DRY_RUN !== "false",
     supabaseUrl: cleanUrl(env.SUPABASE_URL),
-    supabaseServiceRoleKey: stringValue(env.SUPABASE_SERVICE_ROLE_KEY)
+    supabaseServiceRoleKey: stringValue(env.SUPABASE_SERVICE_ROLE_KEY),
+    auditToken: stringValue(env.AUDIT_TOKEN)
   };
 }
 

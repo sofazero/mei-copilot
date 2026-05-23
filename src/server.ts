@@ -18,6 +18,10 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/audit") {
+      if (!isAuditAuthorized(request, url)) {
+        return sendJson(response, { error: "unauthorized" }, 401);
+      }
+
       return sendJson(response, {
         events: getAuditEvents()
       });
@@ -67,4 +71,12 @@ function sendJson(
     "Content-Type": "application/json"
   });
   response.end(JSON.stringify(body));
+}
+
+function isAuditAuthorized(request: IncomingMessage, url: URL) {
+  if (!config.auditToken) return config.evolutionDryRun;
+
+  const authorization = request.headers.authorization;
+  const bearerToken = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : undefined;
+  return bearerToken === config.auditToken || url.searchParams.get("token") === config.auditToken;
 }

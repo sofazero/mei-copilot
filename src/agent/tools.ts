@@ -364,8 +364,11 @@ async function markDasPaid(tenantId: string, phone: string, input: Record<string
   return {
     tenantId,
     phone,
-    paid: true,
-    period: input.period ?? "current_month"
+    paid: false,
+    period: input.period ?? "current_month",
+    status: "not_connected",
+    requiresHumanAction: true,
+    message: "Marcação de DAS pago ainda não está conectada a uma base persistente."
   };
 }
 
@@ -373,9 +376,11 @@ async function scheduleAlert(tenantId: string, phone: string, input: Record<stri
   return {
     tenantId,
     phone,
-    scheduled: true,
+    scheduled: false,
     type: input.type,
-    scheduledAt: input.scheduledAt
+    scheduledAt: input.scheduledAt,
+    status: "not_connected",
+    message: "Agenda de alertas ainda não está conectada."
   };
 }
 
@@ -390,7 +395,7 @@ async function researchMarket(input: Record<string, unknown>): Promise<MarketRes
     likelyCnae: undefined,
     priceRange: undefined,
     sectorPains: [],
-    risks: ["Pesquisa externa ainda não conectada neste esqueleto."],
+    risks: ["Pesquisa externa ainda não conectada."],
     recommendation: "Conectar esta tool a um provedor de busca e retornar JSON estruturado com fontes.",
     sources: []
   };
@@ -400,13 +405,14 @@ async function notifyAccountant(tenantId: string, phone: string, input: Record<s
   return {
     tenantId,
     phone,
-    notificationId: crypto.randomUUID(),
-    status: "created",
+    notificationId: null,
+    status: "not_connected",
     responsibleName: stringValue(input.responsibleName) ?? "responsável do escritório",
     reason: input.reason,
     severity: input.severity ?? "medium",
     summary: input.summary,
-    suggestedAction: input.suggestedAction
+    suggestedAction: input.suggestedAction,
+    message: "Notificação ao contador ainda não está conectada a uma fila ou painel."
   };
 }
 
