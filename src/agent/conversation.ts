@@ -93,6 +93,26 @@ export function saveConversationState(
   return state;
 }
 
+export async function resetConversationState(profile: JuliaProfile) {
+  const updatedAt = new Date().toISOString();
+  const key = conversationKey(profile.tenant.id, profile.phone);
+  const pending = pendingMessages.get(key);
+
+  if (pending?.timer) {
+    clearTimeout(pending.timer);
+  }
+
+  pendingMessages.delete(key);
+  conversations.set(key, {
+    state: "new",
+    profile,
+    memory: {},
+    updatedAt
+  });
+
+  await persistConversationState(profile, "new", {}, updatedAt);
+}
+
 export function enqueueIncomingMessage(
   profile: JuliaProfile,
   text: string,

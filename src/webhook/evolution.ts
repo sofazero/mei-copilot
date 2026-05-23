@@ -98,6 +98,20 @@ export async function handleEvolutionWebhook(payload: EvolutionWebhookPayload) {
 
   void persistContact(tenant, phone);
 
+  if (isResetCommand(text)) {
+    enqueueBufferedProcessing({
+      tenant,
+      phone,
+      text,
+      messageId: payload.data?.key?.id
+    });
+
+    return {
+      queued: true,
+      reset: true
+    };
+  }
+
   const bufferResult = enqueueIncomingMessage(
     {
       tenant,
@@ -330,6 +344,18 @@ function isGroupJid(remoteJid?: string) {
 
 function getMessageText(payload: EvolutionWebhookPayload) {
   return payload.data?.message?.conversation ?? payload.data?.message?.extendedTextMessage?.text;
+}
+
+function isResetCommand(text: string) {
+  return normalizeCommand(text) === "/reset";
+}
+
+function normalizeCommand(text: string) {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function delay(ms: number) {

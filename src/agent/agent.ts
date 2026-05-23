@@ -1,5 +1,6 @@
 import { logAuditEvent } from "./audit";
-import { getConversationContext, saveConversationState } from "./conversation";
+import { getConversationContext, resetConversationState, saveConversationState } from "./conversation";
+import { extractFinancialEntriesWithLlm } from "./llm";
 import { executeTool } from "./tools";
 import type {
   ConversationMemory,
@@ -45,6 +46,10 @@ export async function runJuliaTurn(input: JuliaTurnInput, maxSteps = JULIA_MAX_S
   }
 
   const normalizedText = normalizeText(input.text);
+
+  if (isResetCommand(normalizedText)) {
+    return resetReply(input, runId, startedAt);
+  }
 
   if (isOptOut(normalizedText)) {
     return reply(
@@ -236,14 +241,14 @@ async function decideNextJuliaStep(
   }
 
   if (state === "daily_checkin" || state === "entry_capture") {
-    const entries = extractFinancialEntries(input.text);
+    const entries = await extractFinancialEntriesForTurn(input, runId, stepNumber);
     if (entries.length > 0) {
       return saveFinancialEntries(input, entries, runId, stepNumber);
     }
   }
 
   if (looksLikeEntry(normalizedText)) {
-    const entries = extractFinancialEntries(input.text);
+    const entries = await extractFinancialEntriesForTurn(input, runId, stepNumber);
     if (entries.length > 0) {
       return saveFinancialEntries(input, entries, runId, stepNumber);
     }
@@ -259,6 +264,47 @@ async function decideNextJuliaStep(
     state,
     objective: "continuar conversa",
     answer: "Entendi.\n\nMe conta em uma frase o que aconteceu hoje no negócio: teve entrada, gasto ou foi um dia sem movimento?"
+  };
+}
+
+async function resetReply(input: JuliaTurnInput, runId: string, startedAt: number): Promise<JuliaTurnOutput> {
+  const answer = 'Pronto, zerei a memória deste teste.\n\nPode começar de novo me mandando "Oi".';
+
+  await resetConversationState(input);
+
+  logAuditEvent({
+    type: "conversation_reset",
+    tenant: input.tenant,
+    phone: input.phone,
+    messageId: input.messageId,
+    runId,
+    payload: {
+      scope: "conversation_memory",
+      preserved: ["financial_entries"]
+    }
+  });
+
+  logAuditEvent({
+    type: "agent_run_completed",
+    tenant: input.tenant,
+    phone: input.phone,
+    messageId: input.messageId,
+    runId,
+    payload: {
+      state: "new",
+      objective: "resetar memória de teste",
+      answer,
+      stepsUsed: 1,
+      durationMs: Date.now() - startedAt
+    }
+  });
+
+  return {
+    answer,
+    state: "new",
+    objective: "resetar memória de teste",
+    stepsUsed: 1,
+    runId
   };
 }
 
@@ -327,6 +373,10 @@ function isAcceptance(text: string) {
 
 function isOptOut(text: string) {
   return /\b(nao quero|parar|pare|cancelar|sair|remover|nao me chame)\b/.test(text);
+}
+
+function isResetCommand(text: string) {
+  return text === "/reset";
 }
 
 function asksForHuman(text: string) {
@@ -401,6 +451,11 @@ async function saveFinancialEntries(
     objective: "registrar lançamentos financeiros",
     answer: buildEntrySummary(entries, incomeTotal, expenseTotal, balance)
   };
+}
+
+async function extractFinancialEntriesForTurn(input: JuliaTurnInput, runId: string, stepNumber: number) {
+  const entries = await extractFinancialEntriesWithLlm(input, runId, stepNumber);
+  return entries ?? extractFinancialEntries(input.text);
 }
 
 function extractFinancialEntries(text: string): FinancialEntryInput[] {

@@ -6,6 +6,10 @@ export type AppConfig = {
   supabaseUrl?: string;
   supabaseServiceRoleKey?: string;
   auditToken?: string;
+  llmEnabled: boolean;
+  openaiApiKey?: string;
+  openaiModel: string;
+  llmTimeoutMs: number;
 };
 
 export function getConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -16,7 +20,11 @@ export function getConfig(env: Record<string, string | undefined> = process.env)
     evolutionDryRun: env.EVOLUTION_DRY_RUN !== "false",
     supabaseUrl: cleanUrl(env.SUPABASE_URL),
     supabaseServiceRoleKey: stringValue(env.SUPABASE_SERVICE_ROLE_KEY),
-    auditToken: stringValue(env.AUDIT_TOKEN)
+    auditToken: stringValue(env.AUDIT_TOKEN),
+    llmEnabled: env.LLM_ENABLED === "true",
+    openaiApiKey: stringValue(env.OPENAI_API_KEY),
+    openaiModel: stringValue(env.OPENAI_MODEL) ?? "gpt-4o-mini",
+    llmTimeoutMs: numberValue(env.LLM_TIMEOUT_MS) ?? 15000
   };
 }
 
