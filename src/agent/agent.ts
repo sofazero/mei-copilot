@@ -416,7 +416,7 @@ function reply(
   startedAt: number,
   memoryPatch: Partial<ConversationMemory> = {}
 ): JuliaTurnOutput {
-  const cleanAnswer = sanitizeWhatsAppText(answer);
+  const cleanAnswer = sanitizeWhatsAppText(answer, input, state);
 
   saveConversationState(input, state, memoryPatch);
 
@@ -940,8 +940,14 @@ function capitalize(text: string) {
   return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
 }
 
-function sanitizeWhatsAppText(text: string) {
-  return text.replace(/\*\*/g, "*").replace(/^#{1,6}\s+/gm, "");
+function sanitizeWhatsAppText(text: string, input: JuliaTurnInput, state: ConversationState) {
+  let clean = text.replace(/\*\*/g, "*").replace(/^#{1,6}\s+/gm, "").trim();
+
+  if (state !== "permission_sent") {
+    clean = removeRepeatedGreeting(clean, input.name);
+  }
+
+  return clean;
 }
 
 function asksForFinancialSummary(text: string) {
@@ -965,6 +971,19 @@ function isGenericPricingAnswer(answer: string) {
 function buildPricingFirstQuestion(input: JuliaTurnInput) {
   const activity = input.activity ? ` de ${input.activity}` : "";
   return `Vamos calcular sem chute.\n\nPara começar: em média, quanto você gasta para montar e entregar um serviço/pacote${activity}? Pode ser um valor aproximado.`;
+}
+
+function removeRepeatedGreeting(text: string, name?: string) {
+  const escapedName = name ? escapeRegExp(name) : "[\\p{L}\\s]{2,30}";
+  const greetingPattern = new RegExp(
+    `^(?:\\s*(?:oi|olá|ola|bom dia|boa tarde|boa noite)[,!\\.\\s]*(?:${escapedName})?[,!\\.\\s]*(?:tudo bem\\??\\s*)?)+`,
+    "iu"
+  );
+  return text.replace(greetingPattern, "").trimStart();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function asksForMonthlySummary(text: string) {
