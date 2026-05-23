@@ -1,4 +1,5 @@
 import { logAuditEvent } from "./audit";
+import { decideNextStepWithLlm, type AgenticLlmDecision } from "./agentic-llm";
 import { getConversationContext, resetConversationState, saveConversationState } from "./conversation";
 import { extractFinancialEntriesWithLlm } from "./llm";
 import { executeTool } from "./tools";
@@ -76,9 +77,49 @@ export async function runJuliaTurn(input: JuliaTurnInput, maxSteps = JULIA_MAX_S
   }
 
   const context = await getConversationContext(input);
-  const next = await decideNextJuliaStep(input, context.state, context.memory, normalizedText, runId, 1);
+  const llmDecision = await decideNextStepWithLlm(input, context, runId, 1);
+  if (llmDecision) {
+    return applyAgenticDecision(input, llmDecision, runId, 1, startedAt);
+  }
 
+  const next = await decideNextJuliaStep(input, context.state, context.memory, normalizedText, runId, 1);
   return reply(input, runId, next.state, next.objective, next.answer, 1, startedAt, next.memoryPatch);
+}
+
+async function applyAgenticDecision(
+  input: JuliaTurnInput,
+  decision: AgenticLlmDecision,
+  runId: string,
+  stepNumber: number,
+  startedAt: number
+): Promise<JuliaTurnOutput> {
+  if (decision.action !== "answer" && decision.memoryPatch && Object.keys(decision.memoryPatch).length > 0) {
+    saveConversationState(input, decision.state, decision.memoryPatch);
+
+    logAuditEvent({
+      type: "conversation_memory_updated",
+      tenant: input.tenant,
+      phone: input.phone,
+      messageId: input.messageId,
+      runId,
+      payload: {
+        memoryPatch: decision.memoryPatch,
+        source: "llm_agent"
+      }
+    });
+  }
+
+  if (decision.action === "save_entries") {
+    const next = await saveFinancialEntries(input, decision.entries, runId, stepNumber);
+    return reply(input, runId, next.state, next.objective, next.answer, 1, startedAt, next.memoryPatch);
+  }
+
+  if (decision.action === "get_summary") {
+    const next = await getFinancialSummary(input, decision.period, runId, stepNumber);
+    return reply(input, runId, next.state, next.objective, next.answer, 1, startedAt, next.memoryPatch);
+  }
+
+  return reply(input, runId, decision.state, decision.objective, decision.answer, 1, startedAt, decision.memoryPatch);
 }
 
 async function decideNextJuliaStep(

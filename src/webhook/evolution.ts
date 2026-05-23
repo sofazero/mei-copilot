@@ -312,7 +312,13 @@ async function loadJuliaProfile(tenant: Tenant, phone: string): Promise<JuliaPro
       ...profile,
       name: stringOrUndefined(contact.name),
       activity: stringOrUndefined(contact.activity),
-      city: stringOrUndefined(contact.city)
+      city: stringOrUndefined(contact.city),
+      businessStatus: toBusinessStatus(contact.business_status),
+      cnae: stringOrUndefined(contact.cnae),
+      segment: stringOrUndefined(contact.segment),
+      preferredCheckinTime: stringOrUndefined(contact.preferred_checkin_time),
+      responsibleName: stringOrUndefined(contact.responsible_name),
+      profileJson: isRecord(contact.profile_json) ? contact.profile_json : undefined
     };
   } catch (error) {
     logError("contact_read_error", error, {
@@ -364,4 +370,12 @@ function delay(ms: number) {
 
 function stringOrUndefined(value: unknown) {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function toBusinessStatus(value: unknown): JuliaProfile["businessStatus"] {
+  return value === "active_mei" || value === "starting_mei" || value === "unknown" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

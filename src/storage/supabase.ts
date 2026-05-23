@@ -61,14 +61,36 @@ export async function getContactFromSupabase(tenantId: string, phone: string) {
   const config = getConfig();
   if (!config.supabaseUrl || !config.supabaseServiceRoleKey) return null;
 
-  const url = new URL(`${config.supabaseUrl}/rest/v1/contacts`);
+  return getContactWithSelect(
+    config.supabaseUrl,
+    config.supabaseServiceRoleKey,
+    tenantId,
+    phone,
+    "name,activity,city,status,business_status,cnae,segment,preferred_checkin_time,responsible_name,profile_json"
+  ).catch((error) => {
+    if (error instanceof Error && error.message.includes("contact read failed")) {
+      return getContactWithSelect(config.supabaseUrl!, config.supabaseServiceRoleKey!, tenantId, phone, "name,activity,city,status");
+    }
+
+    throw error;
+  });
+}
+
+async function getContactWithSelect(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  tenantId: string,
+  phone: string,
+  select: string
+) {
+  const url = new URL(`${supabaseUrl}/rest/v1/contacts`);
   url.searchParams.set("tenant_id", `eq.${tenantId}`);
   url.searchParams.set("phone", `eq.${phone}`);
-  url.searchParams.set("select", "name,activity,city,status");
+  url.searchParams.set("select", select);
   url.searchParams.set("limit", "1");
 
   const response = await fetch(url, {
-    headers: supabaseHeaders(config.supabaseServiceRoleKey)
+    headers: supabaseHeaders(serviceRoleKey)
   });
 
   if (!response.ok) {

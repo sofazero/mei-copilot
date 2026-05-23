@@ -78,6 +78,12 @@ export type JuliaProfile = {
   name?: string;
   activity?: string;
   city?: string;
+  businessStatus?: ConversationMemory["businessStatus"];
+  cnae?: string;
+  segment?: string;
+  preferredCheckinTime?: string;
+  responsibleName?: string;
+  profileJson?: Record<string, unknown>;
 };
 
 export type ConversationMemory = {

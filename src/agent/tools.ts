@@ -373,15 +373,67 @@ async function markDasPaid(tenantId: string, phone: string, input: Record<string
 }
 
 async function scheduleAlert(tenantId: string, phone: string, input: Record<string, unknown>) {
-  return {
-    tenantId,
+  const dueAt = stringValue(input.scheduledAt) ?? stringValue(input.dueAt);
+  const title = stringValue(input.title) ?? "Lembrete da Julia";
+  const message = stringValue(input.message) ?? "Passando para te lembrar desse ponto.";
+  const type = enumValue(input.type, ["daily_checkin", "das_due", "das_overdue", "payable_due", "custom"]) ?? "custom";
+
+  if (!dueAt) {
+    return {
+      tenantId,
+      phone,
+      scheduled: false,
+      type,
+      status: "missing_due_at",
+      message: "Preciso de uma data e horário para agendar esse lembrete."
+    };
+  }
+
+  const reminder = {
+    id: crypto.randomUUID(),
+    tenant_id: tenantId,
     phone,
-    scheduled: false,
-    type: input.type,
-    scheduledAt: input.scheduledAt,
-    status: "not_connected",
-    message: "Agenda de alertas ainda não está conectada."
+    type,
+    title,
+    message,
+    due_at: dueAt,
+    status: "pending",
+    recurrence_rule: stringValue(input.recurrenceRule),
+    payload_json: isRecord(input.payload) ? input.payload : {},
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
   };
+
+  try {
+    await insertSupabase("reminders", reminder);
+
+    return {
+      tenantId,
+      phone,
+      scheduled: true,
+      id: reminder.id,
+      type,
+      title,
+      dueAt,
+      status: "pending"
+    };
+  } catch (error) {
+    logError("reminder_persist_error", error, {
+      tenantId,
+      phone,
+      reminder
+    });
+
+    return {
+      tenantId,
+      phone,
+      scheduled: false,
+      type,
+      dueAt,
+      status: "persist_failed",
+      error: error instanceof Error ? error.message : "Erro inesperado ao salvar lembrete"
+    };
+  }
 }
 
 async function researchMarket(input: Record<string, unknown>): Promise<MarketResearch> {
@@ -428,6 +480,10 @@ function numberValue(value: unknown) {
 
 function enumValue<T extends string>(value: unknown, allowed: T[]): T | undefined {
   return typeof value === "string" && allowed.includes(value as T) ? (value as T) : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function normalizeText(text: string) {
